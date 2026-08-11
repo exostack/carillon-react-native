@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  # The JavaScript layer, which is the whole of what this repository decides.
+  # The native halves are compiled against carillon-swift and carillon-kotlin,
+  # neither of which a runner can resolve while they are unpublished; the
+  # example builds are run locally against checkouts until they are.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: yarn typecheck
+      - run: yarn test
+      - run: yarn prepare
