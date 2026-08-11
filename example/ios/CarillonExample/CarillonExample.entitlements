@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- `development` is what a debug build is signed with. The SDK never reads
+	     this value: it parses the embedded provisioning profile at runtime, so
+	     what it reports is what the binary was actually signed with. -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>

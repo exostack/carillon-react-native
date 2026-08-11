@@ -1,0 +1,62 @@
+buildscript {
+  ext.Carillon = [
+    kotlinVersion: "2.0.21",
+    minSdkVersion: 24,
+    compileSdkVersion: 36,
+    // The Android SDK this bridge binds. A published coordinate, resolved from
+    // Maven Central once carillon-kotlin is there; see the README for what
+    // resolves it today.
+    sdkVersion: "0.1.0"
+  ]
+
+  ext.getExtOrDefault = { prop ->
+    if (rootProject.ext.has(prop)) {
+      return rootProject.ext.get(prop)
+    }
+
+    return Carillon[prop]
+  }
+
+  repositories {
+    google()
+    mavenCentral()
+  }
+
+  dependencies {
+    classpath "com.android.tools.build:gradle:8.7.2"
+    // noinspection DifferentKotlinGradleVersion
+    classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${getExtOrDefault('kotlinVersion')}"
+  }
+}
+
+
+apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
+
+apply plugin: "com.facebook.react"
+
+android {
+  namespace "dev.carillon.reactnative"
+
+  compileSdkVersion getExtOrDefault("compileSdkVersion")
+
+  defaultConfig {
+    minSdkVersion getExtOrDefault("minSdkVersion")
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+}
+
+dependencies {
+  implementation "com.facebook.react:react-android"
+
+  // `api`, not `implementation`: the app forwards its launcher intent with
+  // `Carillon.didOpen(intent)` from its own activity, exactly as a bare Kotlin
+  // integration does. A dependency the integration requires is part of this
+  // package's surface, and hiding it would only mean every app declaring the
+  // SDK a second time.
+  api "dev.carillon:carillon:${getExtOrDefault('sdkVersion')}"
+}

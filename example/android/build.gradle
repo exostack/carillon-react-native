@@ -1,0 +1,35 @@
+buildscript {
+    ext {
+        buildToolsVersion = "36.0.0"
+        minSdkVersion = 24
+        compileSdkVersion = 36
+        targetSdkVersion = 36
+        ndkVersion = "27.1.12297006"
+        kotlinVersion = "2.1.20"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle")
+        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        // Turns google-services.json into resources at build time. The bench's
+        // own concern, never the library's: a customer's app brings its own
+        // Firebase wiring, exactly as this one does.
+        classpath("com.google.gms:google-services:4.4.4")
+    }
+}
+
+apply plugin: "com.facebook.react.rootproject"
+
+allprojects {
+    repositories {
+        // Where dev.carillon:carillon comes from until carillon-kotlin is on
+        // Maven Central: `./gradlew publishToMavenLocal` in that repository.
+        // The coordinate is the published one, so nothing here changes on the
+        // day it stops being local.
+        mavenLocal()
+    }
+}
