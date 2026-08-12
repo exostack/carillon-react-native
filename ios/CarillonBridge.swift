@@ -35,11 +35,11 @@ public final class CarillonBridge: NSObject {
   }
 
   @objc
-  public static func register(_ completion: @escaping (String) -> Void) {
-    // `register()` is asynchronous and the JavaScript side is waiting on a
-    // promise. The outcome's raw value is already the word the protocol uses,
-    // and the same word the Android side answers with.
-    Task { completion(await Carillon.register().rawValue) }
+  public static func requestPermission(_ completion: @escaping (String) -> Void) {
+    // `requestPermission()` is asynchronous and the JavaScript side is waiting
+    // on a promise. The permission's raw value is already the word the protocol
+    // uses, and the same word the Android side answers with.
+    Task { completion(await Carillon.requestPermission().rawValue) }
   }
 
   @objc

@@ -17,8 +17,15 @@ import {
 export interface Spec extends TurboModule {
   configure(key: string, endpoint?: string, debug?: boolean): void;
 
-  /** The outcome, spelled as the natives spell it: registered, denied, simulator. */
-  register(): Promise<string>;
+  /**
+   * The permission the person left the system dialogue in, spelled as the
+   * natives spell it: allowed, denied, provisional, undetermined.
+   *
+   * No activity crosses this boundary. Android needs one to raise a dialogue
+   * and the module has `currentActivity`; making JavaScript supply it would put
+   * a platform's plumbing into a surface that has none.
+   */
+  requestPermission(): Promise<string>;
 
   identify(externalId: string): void;
   clearIdentity(): void;

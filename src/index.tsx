@@ -10,8 +10,10 @@ import NativeCarillon from './NativeCarillon';
  * second implementation of a protocol that already has one.
  *
  * ```ts
+ * // Registers this device. Nobody is prompted.
  * Carillon.configure({ key: 'carillon_mk_live_…', debug: __DEV__ });
- * await Carillon.register();
+ * // A separate decision, whenever the app has a reason to ask.
+ * await Carillon.requestPermission();
  * const off = Carillon.onOpened((n) => router.push(n.payload.url));
  * ```
  */
@@ -34,15 +36,21 @@ export type CarillonOptions = {
 };
 
 /**
- * What `register()` resolved to.
+ * What the operating system will do with a notification for this app.
  *
- * `simulator` is iOS's alone — an Android emulator with Play Services issues a
- * real token and receives real notifications, so there is nothing to warn
- * anybody about there.
+ * The protocol's vocabulary, shared by every Carillon SDK, which is why it has
+ * four values where Android produces two: `provisional` is Apple's quiet
+ * delivery and `undetermined` a prompt that has not been shown.
+ *
+ * It is the *display* permission and nothing more. Whether the device can be
+ * addressed at all is a question about its token, which it has from its first
+ * launch whatever this says.
  */
-export type RegistrationStatus = 'registered' | 'denied' | 'simulator';
-
-export type RegistrationResult = { status: RegistrationStatus };
+export type PushPermission =
+  | 'allowed'
+  | 'denied'
+  | 'provisional'
+  | 'undetermined';
 
 /** A tag value, as the API defines it: a flat scalar and nothing else. */
 export type TagValue = string | number | boolean;
@@ -75,22 +83,32 @@ export type OpenedHandler = (notification: OpenedNotification) => void;
  */
 export type DebugInfo = Record<string, unknown>;
 
-/** Configures the SDK. Call once, early, before anything else. */
+/**
+ * Configures the SDK, and registers this device.
+ *
+ * Registration happens here, silently: no prompt is shown and none is needed. A
+ * push token is transport addressing rather than consent, so the handset is in
+ * your base from its first launch carrying the permission it really has.
+ * `requestPermission()` is a separate decision.
+ *
+ * Call once, early, before anything else.
+ */
 export function configure(options: CarillonOptions): void {
   NativeCarillon.configure(options.key, options.endpoint, options.debug);
 }
 
 /**
- * Asks for permission and registers the device.
+ * Shows the system's permission dialogue, and answers with what it decided.
  *
- * On iOS the token arrives later, on the delegate callback the app forwards; on
- * Android the SDK asks Firebase for it. Either way this answers about
- * permission, not about a token.
+ * One question, one answer. It does not register the device — `configure`
+ * already did — and the new permission reaches the server by itself.
+ *
+ * Uniform across both platforms, which the natives are not: iOS prompts from
+ * anywhere, Android needs the activity the dialogue belongs to, and the module
+ * supplies its own. A React Native app has no business holding an activity.
  */
-export async function register(): Promise<RegistrationResult> {
-  const status = await NativeCarillon.register();
-
-  return { status: status as RegistrationStatus };
+export async function requestPermission(): Promise<PushPermission> {
+  return (await NativeCarillon.requestPermission()) as PushPermission;
 }
 
 /**
@@ -161,7 +179,7 @@ export async function debugInfo(): Promise<DebugInfo> {
 
 const Carillon = {
   configure,
-  register,
+  requestPermission,
   identify,
   setTags,
   optIn,
