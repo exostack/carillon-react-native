@@ -47,11 +47,29 @@ class CarillonModule(private val context: ReactApplicationContext) :
     )
   }
 
-  override fun register(promise: Promise) {
-    // `register()` suspends, and the JavaScript side is waiting on a promise.
-    // The outcome is lowercased into the word the protocol uses, which is the
-    // same word the iOS side answers with.
-    scope.launch { promise.resolve(Carillon.register().name.lowercase(Locale.US)) }
+  override fun requestPermission(promise: Promise) {
+    // Android needs an activity to raise the dialogue and iOS needs nothing, so
+    // the activity is found here rather than asked of JavaScript: a React Native
+    // app has no business holding one, and the promise is the same on both
+    // platforms because of it.
+    val activity = context.currentActivity
+
+    if (activity == null) {
+      // No activity means no screen for a dialogue to belong to — a request
+      // made while the app is in the background, which the OS would refuse
+      // anyway. Rejected rather than answered, because the alternative is
+      // reporting a decision nobody was given the chance to make.
+      promise.reject(NO_ACTIVITY, "No activity is in the foreground to show the prompt on.")
+
+      return
+    }
+
+    // `requestPermission()` suspends until the person has answered. The state is
+    // lowercased into the word the protocol uses, which is the same word the iOS
+    // side answers with.
+    scope.launch {
+      promise.resolve(Carillon.requestPermission(activity).name.lowercase(Locale.US))
+    }
   }
 
   override fun identify(externalId: String) = Carillon.identify(externalId)
@@ -157,6 +175,8 @@ class CarillonModule(private val context: ReactApplicationContext) :
   }
 
   private companion object {
+    const val NO_ACTIVITY = "carillon_no_activity"
+
     /**
      * The instant of a tap, as JavaScript will read it. The same shape the SDK
      * writes into a request body, spelled out again because it is internal

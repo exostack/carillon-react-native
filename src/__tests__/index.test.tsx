@@ -15,7 +15,7 @@ const mockNative = {
   calls: [] as string[],
 
   configure: jest.fn(),
-  register: jest.fn(async () => 'registered'),
+  requestPermission: jest.fn(async () => 'allowed'),
   identify: jest.fn(),
   clearIdentity: jest.fn(),
   setTags: jest.fn(),
@@ -98,11 +98,20 @@ describe('configure', () => {
   });
 });
 
-describe('register', () => {
-  it('names the outcome the natives answered with', async () => {
-    mockNative.register.mockResolvedValueOnce('denied');
+describe('requestPermission', () => {
+  it('answers with the permission the natives reported', async () => {
+    mockNative.requestPermission.mockResolvedValueOnce('denied');
 
-    await expect(Carillon.register()).resolves.toEqual({ status: 'denied' });
+    await expect(Carillon.requestPermission()).resolves.toBe('denied');
+  });
+
+  it('does not register anything: configure already did', () => {
+    // The bridge has one call for one question. A device is in the customer's
+    // base from `configure`, prompt or no prompt, and nothing here changes that.
+    Carillon.configure({ key: 'carillon_mk_test_key' });
+
+    expect(mockNative.configure).toHaveBeenCalled();
+    expect(mockNative.requestPermission).not.toHaveBeenCalled();
   });
 });
 

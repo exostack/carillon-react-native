@@ -21,10 +21,10 @@
   [CarillonBridge configureWithKey:key endpoint:endpoint debug:[debug boolValue]];
 }
 
-- (void)register:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+- (void)requestPermission:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
 {
-  [CarillonBridge register:^(NSString *outcome) {
-    resolve(outcome);
+  [CarillonBridge requestPermission:^(NSString *permission) {
+    resolve(permission);
   }];
 }
 

@@ -27,9 +27,15 @@ what resolves them today, which is not yet what will resolve them tomorrow.
 ```ts
 import Carillon from '@carillon/react-native';
 
+// Registers this device. Nobody is prompted: a push token is transport
+// addressing, not consent, so the handset is in your base from its first launch
+// carrying the permission it really has.
 Carillon.configure({ key: 'carillon_mk_live_…', debug: __DEV__ });
 
-const { status } = await Carillon.register(); // 'registered' | 'denied' | 'simulator'
+// A separate decision, made whenever your app has earned the right to ask. The
+// new permission reaches the server on its own.
+// 'allowed' | 'denied' | 'provisional' | 'undetermined'
+const permission = await Carillon.requestPermission();
 
 Carillon.identify('user-42'); // null forgets the identifier
 Carillon.setTags({ plan: 'pro', seats: 12 }); // replaced whole, never merged

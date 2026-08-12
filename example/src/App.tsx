@@ -100,13 +100,19 @@ export default function App() {
 
     Carillon.configure({ key, endpoint, debug: true });
     append(`configured for ${endpoint} with ${key === '' ? 'no key' : key}`);
+    append('registering silently — nothing is asked; watch device_id appear below');
+
+    // The token reaches the natives a moment later, and the registration a
+    // moment after that. Re-read on a delay so the panel shows the device the
+    // server named rather than the emptiness before it.
     await refreshInfo();
+    setTimeout(() => void refreshInfo(), 2000);
   }, [append, endpoint, key, refreshInfo]);
 
-  const register = useCallback(async () => {
-    const { status } = await Carillon.register();
+  const requestPermission = useCallback(async () => {
+    const permission = await Carillon.requestPermission();
 
-    append(`register() → ${status}`);
+    append(`requestPermission() → ${permission}`);
     await refreshInfo();
   }, [append, refreshInfo]);
 
@@ -127,8 +133,15 @@ export default function App() {
         <Field placeholder="Mobile key" value={key} onChangeText={setKey} monospace />
         <Button title="Apply" onPress={() => void apply()} />
 
-        <Heading>Registration</Heading>
-        <Button title="register()" onPress={() => void register()} />
+        <Heading>Permission</Heading>
+        <Note>
+          Apply registers this device on its own. This asks whether the system
+          may show anything.
+        </Note>
+        <Button
+          title="requestPermission()"
+          onPress={() => void requestPermission()}
+        />
 
         <Heading>Identity</Heading>
         <Field placeholder="external_id" value={externalId} onChangeText={setExternalId} />
@@ -185,6 +198,10 @@ function Heading({ children }: { children: string }) {
   return <Text style={styles.heading}>{children.toUpperCase()}</Text>;
 }
 
+function Note({ children }: { children: string }) {
+  return <Text style={styles.note}>{children}</Text>;
+}
+
 function Field({
   placeholder,
   value,
@@ -216,6 +233,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   column: { padding: 16 },
   heading: { fontSize: 12, fontWeight: 'bold', paddingTop: 20, paddingBottom: 4 },
+  note: { fontSize: 12, paddingBottom: 6 },
   field: { borderBottomWidth: StyleSheet.hairlineWidth, marginBottom: 8 },
   monospaceInput: { fontFamily: monospace },
   dump: { fontFamily: monospace, fontSize: 11, paddingTop: 4 },
