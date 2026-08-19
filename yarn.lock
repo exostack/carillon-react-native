@@ -1522,9 +1522,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@carillon/react-native-example@workspace:example":
+"@exostack/carillon-react-native-example@workspace:example":
   version: 0.0.0-use.local
-  resolution: "@carillon/react-native-example@workspace:example"
+  resolution: "@exostack/carillon-react-native-example@workspace:example"
   dependencies:
     "@babel/core": "npm:^7.25.2"
     "@babel/preset-env": "npm:^7.25.3"
@@ -1545,9 +1545,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@carillon/react-native@workspace:.":
+"@exostack/carillon-react-native@workspace:.":
   version: 0.0.0-use.local
-  resolution: "@carillon/react-native@workspace:."
+  resolution: "@exostack/carillon-react-native@workspace:."
   dependencies:
     "@expo/config-plugins": "npm:^57.0.7"
     "@jest/globals": "npm:^29.7.0"
