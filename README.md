@@ -1,4 +1,4 @@
-# @carillon/react-native
+# @exostack/carillon-react-native
 
 Carillon React Native SDK. A bridge over [carillon-swift][swift] and
 [carillon-kotlin][kotlin], and nothing more.
@@ -15,7 +15,7 @@ Zero runtime dependencies. `react` and `react-native` are peers.
 ## Installing
 
 ```sh
-yarn add @carillon/react-native
+yarn add @exostack/carillon-react-native
 ```
 
 The native SDKs come with it: the podspec declares the Swift package, the Gradle
@@ -25,7 +25,7 @@ what resolves them today, which is not yet what will resolve them tomorrow.
 ## Surface
 
 ```ts
-import Carillon from '@carillon/react-native';
+import Carillon from '@exostack/carillon-react-native';
 
 // Registers this device. Nobody is prompted: a push token is transport
 // addressing, not consent, so the handset is in your base from its first launch
@@ -154,7 +154,7 @@ rather than a separate one:
 ```json
 {
   "expo": {
-    "plugins": ["@carillon/react-native"],
+    "plugins": ["@exostack/carillon-react-native"],
     "android": { "googleServicesFile": "./google-services.json" }
   }
 }

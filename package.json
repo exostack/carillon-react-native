@@ -1,5 +1,5 @@
 {
-  "name": "@carillon/react-native",
+  "name": "@exostack/carillon-react-native",
   "version": "0.1.1",
   "description": "React Native bridge over the Carillon native SDKs.",
   "main": "./lib/module/index.js",
@@ -32,7 +32,7 @@
     "!**/.*"
   ],
   "scripts": {
-    "example": "yarn workspace @carillon/react-native-example",
+    "example": "yarn workspace @exostack/carillon-react-native-example",
     "clean": "del-cli android/build example/android/build example/android/app/build example/ios/build lib plugin/build",
     "prepare": "bob build && yarn build:plugin",
     "typecheck": "tsc",

@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Carillon, { type DebugInfo } from '@carillon/react-native';
+import Carillon, { type DebugInfo } from '@exostack/carillon-react-native';
 
 /**
  * The test bench.
