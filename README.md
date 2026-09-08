@@ -1,41 +1,28 @@
 # @exostack/carillon-react-native
 
-Carillon React Native SDK. A bridge over [carillon-swift][swift] and
-[carillon-kotlin][kotlin], and nothing more.
+Carillon SDK for React Native, using the native [Swift][swift] and [Kotlin][kotlin]
+SDKs. Requires a native build; Expo Go cannot load this module.
 
-Registration, retries, the event queue, environment detection, the open held
-across a cold start — all of it lives in the native SDKs, once. Any behaviour
-that existed only in this package would be a second implementation of a
-protocol that already has one, and a behaviour every other wrapper would then
-be missing. `src/` maps arguments, forwards calls and manages subscriptions;
-that is the whole job.
-
-Zero runtime dependencies. `react` and `react-native` are peers.
-
-## Installing
+## Install
 
 ```sh
 yarn add @exostack/carillon-react-native
 ```
 
-The native SDKs come with it: the podspec declares the Swift package, the Gradle
-module declares `dev.carillon:carillon`. See **Native dependencies** below for
-what resolves them today, which is not yet what will resolve them tomorrow.
+Complete [native setup](#native-setup) or [Expo setup](#expo-setup), then rebuild
+the app. Create an app in Carillon, upload its APNs or FCM credentials, and copy
+a mobile key.
 
-## Surface
+## Configure and use
 
 ```ts
 import Carillon from '@exostack/carillon-react-native';
 
-// Registers this device. Nobody is prompted: a push token is transport
-// addressing, not consent, so the handset is in your base from its first launch
-// carrying the permission it really has.
-Carillon.configure({ key: 'carillon_mk_live_…', debug: __DEV__ });
+// Call once at app startup. Does not show a permission prompt.
+Carillon.configure({ key: 'YOUR_MOBILE_KEY', debug: __DEV__ });
 
-// A separate decision, made whenever your app has earned the right to ask. The
-// new permission reaches the server on its own.
-// 'allowed' | 'denied' | 'provisional' | 'undetermined'
 const permission = await Carillon.requestPermission();
+// 'allowed' | 'denied' | 'provisional' | 'undetermined'
 
 Carillon.identify('user-42'); // null forgets the identifier
 Carillon.setTags({ plan: 'pro', seats: 12 }); // replaced whole, never merged
@@ -43,29 +30,29 @@ Carillon.optOut();
 Carillon.optIn();
 
 const off = Carillon.onOpened((notification) => {
-  router.push(notification.payload.url as string);
+  console.log(notification.deliveryId, notification.payload);
 });
 
-await Carillon.debugInfo(); // paste this into a support ticket
+const diagnostics = await Carillon.debugInfo();
+console.log(diagnostics);
 ```
 
-`onOpened` covers the cold start: an app launched by a tap receives the event
-once the first subscriber attaches, because the native held it until then. The
-handler is given the delivery id, the instant of the tap, and the payload as the
-platform delivered it — the reserved `carillon` key is an object on iOS and a
-JSON string on Android, because that is what APNs and FCM respectively carry.
-`deliveryId` is surfaced separately so that no app has to know the difference.
+Registration requires a push token and network access. Check `device_id` and
+`last_registration_result` in diagnostics to confirm it completed. Then send a
+test notification from the dashboard and tap it to verify the open callback.
 
-Everything else in the payload is the customer's own. Carillon carries it and
-takes no position on what it means.
+Tags replace the entire map. Opt-in changes sync to the server and do not change
+OS permission. Pass an API base URL as `endpoint` for staging or local development.
+Debug logging is disabled in iOS release builds and non-debuggable Android apps.
 
-## Integrating, bare
+`onOpened` returns an unsubscribe function. Pending cold-start opens are replayed
+when the first subscriber attaches. The payload contains a `carillon` object on
+iOS and a JSON string on Android; use `deliveryId` to avoid parsing it yourself.
 
-Both platforms need the callbacks forwarded explicitly. The SDKs swizzle
-nothing — a decision, not an omission: swizzling is invisible in your own code,
-fights other SDKs for the same selectors, and breaks silently on new lifecycles.
-Under Expo, [the config plugin](#integrating-under-expo) writes all of this for
-you.
+## Native setup
+
+Forward the callbacks below for a bare React Native app. The
+[Expo config plugin](#expo-setup) adds them during prebuild.
 
 ### iOS
 
@@ -99,9 +86,7 @@ func userNotificationCenter(
 }
 ```
 
-`CarillonBridge` rather than `Carillon`: your app links this package, and the
-Swift SDK is resolved for this package's pod alone, so `import Carillon` in an
-app delegate would not compile. The three calls forward straight through.
+Use `CarillonBridge` from `CarillonReactNative` in the app delegate.
 
 Set `UNUserNotificationCenter.current().delegate` before anything else in
 `didFinishLaunching`, so that a launch from a tap has somewhere to deliver its
@@ -109,7 +94,7 @@ open to.
 
 ### Android
 
-Declare the service the SDK ships, and ask for the runtime permission:
+Declare the permission under `<manifest>` and the service under `<application>`:
 
 ```xml
 <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -128,7 +113,7 @@ An app that already has a `FirebaseMessagingService` keeps it and forwards
 dispatches to one service per application, so two declarations mean one of them
 silently never runs.
 
-Forward the launching intent from your activity:
+Import `dev.carillon.sdk.Carillon` and forward launcher intents from your activity:
 
 ```kotlin
 override fun onCreate(savedInstanceState: Bundle?) {
@@ -144,12 +129,11 @@ override fun onNewIntent(intent: Intent) {
 
 Bring your own `google-services.json` (Firebase console → add an Android app
 with your package name) and apply the `com.google.gms.google-services` Gradle
-plugin. Your Firebase project, your quota, as the server side documents.
+plugin.
 
-## Integrating under Expo
+## Expo setup
 
-Managed and bare are both first-class, and the plugin is part of this package
-rather than a separate one:
+Add the plugin to your Expo configuration:
 
 ```json
 {
@@ -165,56 +149,34 @@ callbacks on iOS, and the messaging service, the runtime permission and the
 google-services wiring on Android. Every transform is idempotent, because
 prebuild runs them again over their own output.
 
-The entitlement is written as `aps-environment: development`, which is what a
-debug build is signed with and what EAS replaces for a production build. The SDK
-never reads that value: it parses the embedded provisioning profile at runtime,
-so what it reports is what the binary was actually signed with.
-
 ## Native dependencies
 
-Two layers, because the native SDKs are not published yet.
+The podspec resolves `carillon-swift` through Swift Package Manager with minimum
+version `0.1.1`. Gradle resolves `dev.carillon:carillon:0.1.1`.
 
-**What a customer's install does.** `CarillonReactNative.podspec` declares the
-Swift package by URL through React Native's `spm_dependency` helper, and
-`android/build.gradle` depends on `dev.carillon:carillon:0.1.0`. Nothing else is
-required of the app.
+For local development, clone the native SDKs beside this repository:
 
-**What development does today.** The URL does not answer and the coordinate is
-not on Maven Central, so each side is resolved locally, from checkouts sitting
-beside this repository:
-
-```
+```text
 exostack/
-├── carillon-react-native/   ← here
+├── carillon-react-native/
 ├── carillon-swift/
 └── carillon-kotlin/
 ```
 
-- **iOS.** `example/ios/Podfile` sets `CARILLON_SWIFT_PATH` to
-  `../../../carillon-swift` when that directory exists, and the podspec then
-  declares the same SPM dependency by path instead of by URL. Both produce the
-  same `import Carillon`, so nothing in `ios/` knows which one it got. The path
-  has to be absolute: CocoaPods records it in the Pods project, whose directory
-  is not the one the Podfile is read from.
+For iOS, set `CARILLON_SWIFT_PATH` to the absolute Swift checkout path before
+running `pod install`. The example Podfile detects the sibling checkout automatically.
 
-- **Android.** `./gradlew publishToMavenLocal` in `carillon-kotlin` publishes
-  `dev.carillon:carillon:0.1.0` to `~/.m2`, and `example/android/build.gradle`
-  adds `mavenLocal()` to every project. The coordinate is the published one, so
-  nothing changes on the day the artifact stops being local. A composite build
-  (`includeBuild`) would substitute the same coordinate, but the two builds pin
-  different Android Gradle plugin versions and the local repository does not
-  care.
-
-Run the publish step once before building the example for Android:
+For Android, publish the local SDK and enable `mavenLocal()` in the consuming
+project. The example already enables it:
 
 ```sh
-cd ../carillon-kotlin && ./gradlew publishToMavenLocal
+cd ../carillon-kotlin
+./gradlew publishToMavenLocal
 ```
 
-## The example
+## Run the example
 
-A test bench, not a product: every control exercises one call of the SDK against
-a real server and shows what came back.
+The example calls a configured API and displays SDK diagnostics.
 
 ```sh
 yarn                       # from the repository root
@@ -226,12 +188,9 @@ It defaults to the monorepo's local API — `http://10.0.2.2:28080` on Android,
 which is how an emulator reaches the host machine, and `http://localhost:28080`
 on a simulator. The endpoint and the mobile key are editable and persisted.
 
-The bundle identifier and application id are both `dev.carillon.example`,
-deliberately shared with the native SDKs' own benches: that App ID is registered
-with Apple's push capability, and the Firebase project already knows the Android
-package. `example/android/app/google-services.json` is git-ignored — it names a
-personal Firebase project, and the bench must not assume anyone's. Bring your
-own.
+The example uses `dev.carillon.example` as its iOS bundle identifier and Android
+package name. Provide your own `example/android/app/google-services.json` and
+matching provider credentials.
 
 ## Tests
 
@@ -240,11 +199,8 @@ yarn test        # the JavaScript layer and the Expo plugin's transforms
 yarn typecheck
 ```
 
-What is asserted here is what this package decides: that arguments are mapped,
-that subscriptions are added and removed, that a listener is attached before the
-native is asked to release what it has been holding, and that every config
-transform is idempotent. Everything the SDK actually does is tested where it is
-implemented, in [carillon-swift][swift] and [carillon-kotlin][kotlin].
+Tests cover argument forwarding, subscriptions, cold-start replay ordering, and
+Expo configuration transforms. Registration and retry tests live in the native SDKs.
 
 [swift]: https://github.com/exostack/carillon-swift
 [kotlin]: https://github.com/exostack/carillon-kotlin

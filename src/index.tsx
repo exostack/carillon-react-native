@@ -1,50 +1,29 @@
 import NativeCarillon from './NativeCarillon';
 
 /**
- * The Carillon React Native SDK.
- *
- * A bridge and nothing else. Registration, retries, the event queue, the
- * environment the device is in, the open held across a cold start — all of it
- * lives in carillon-swift and carillon-kotlin, once, so that every wrapper over
- * them behaves the same way. Anything this file did on its own would be a
- * second implementation of a protocol that already has one.
- *
- * ```ts
- * // Registers this device. Nobody is prompted.
- * Carillon.configure({ key: 'carillon_mk_live_…', debug: __DEV__ });
- * // A separate decision, whenever the app has a reason to ask.
- * await Carillon.requestPermission();
- * const off = Carillon.onOpened((n) => router.push(n.payload.url));
- * ```
+ * Carillon React Native SDK. Uses the native Swift and Kotlin SDKs for
+ * registration, retries, and event reporting. See the README for platform setup.
  */
 
-/** What `configure` takes. `endpoint` is for staging, and for nothing else. */
+/**
+ * SDK configuration.
+ */
 export type CarillonOptions = {
   /**
-   * A mobile key, `carillon_mk_live_…` or `carillon_mk_test_…`. It is public by
-   * construction — it ships inside this binary — which is why it can only
-   * register this device and report this device's events.
-   */
+ * Mobile API key from the Carillon dashboard.
+ */
   key: string;
+  /** API base URL. Defaults to production; override for staging or local development. */
   endpoint?: string;
   /**
-   * Verbose logging, honoured only in a debug build: the natives compile it out
-   * of an iOS release and refuse it outside a debuggable Android application,
-   * so a `true` left in shipped code logs nothing.
-   */
+ * Enables logging in iOS debug builds and debuggable Android apps only.
+ */
   debug?: boolean;
 };
 
 /**
- * What the operating system will do with a notification for this app.
- *
- * The protocol's vocabulary, shared by every Carillon SDK, which is why it has
- * four values where Android produces two: `provisional` is Apple's quiet
- * delivery and `undetermined` a prompt that has not been shown.
- *
- * It is the *display* permission and nothing more. Whether the device can be
- * addressed at all is a question about its token, which it has from its first
- * launch whatever this says.
+ * OS notification display permission. Android returns allowed or denied.
+ * iOS also supports provisional (quiet delivery) and undetermined (not yet requested).
  */
 export type PushPermission =
   | 'allowed'
@@ -52,22 +31,18 @@ export type PushPermission =
   | 'provisional'
   | 'undetermined';
 
-/** A tag value, as the API defines it: a flat scalar and nothing else. */
+/**
+ * Device tag value. Nested values are unsupported.
+ */
 export type TagValue = string | number | boolean;
 
 /**
- * An open, handed to the app.
- *
- * The whole payload is here because the customer's own keys travel in it and
- * the destination of a tap is theirs to decide. Carillon carries the data and
- * takes no position on what it means.
+ * Opened notification with its delivery id, original payload, and tap time.
  */
 export type OpenedNotification = {
   /**
-   * The proof of receipt. Unguessable, and it travelled inside this one
-   * notification, which is what makes an open rate something that cannot be
-   * manufactured.
-   */
+ * Delivery id included in the notification by Carillon.
+ */
   deliveryId: string;
   /** When the tap happened, ISO-8601. */
   openedAt: string;
@@ -78,44 +53,28 @@ export type OpenedNotification = {
 export type OpenedHandler = (notification: OpenedNotification) => void;
 
 /**
- * One value, made to be pasted into a support ticket: the natives' own, with
- * their own field names, unopened on the way through.
+ * Native diagnostic fields, including the mobile key, device token, and registration status.
  */
 export type DebugInfo = Record<string, unknown>;
 
 /**
- * Configures the SDK, and registers this device.
- *
- * Registration happens here, silently: no prompt is shown and none is needed. A
- * push token is transport addressing rather than consent, so the handset is in
- * your base from its first launch carrying the permission it really has.
- * `requestPermission()` is a separate decision.
- *
- * Call once, early, before anything else.
+ * Starts device registration without a permission prompt. Call once at app startup.
+ * Registration requires a push token and network access.
  */
 export function configure(options: CarillonOptions): void {
   NativeCarillon.configure(options.key, options.endpoint, options.debug);
 }
 
 /**
- * Shows the system's permission dialogue, and answers with what it decided.
- *
- * One question, one answer. It does not register the device — `configure`
- * already did — and the new permission reaches the server by itself.
- *
- * Uniform across both platforms, which the natives are not: iOS prompts from
- * anywhere, Android needs the activity the dialogue belongs to, and the module
- * supplies its own. A React Native app has no business holding an activity.
+ * Requests notification permission and returns the current OS status.
+ * Syncs the result to the server. On Android, the bridge supplies the activity.
  */
 export async function requestPermission(): Promise<PushPermission> {
   return (await NativeCarillon.requestPermission()) as PushPermission;
 }
 
 /**
- * Your own identifier for the person using this device, or `null` to forget it.
- *
- * An attribute of the device, never an entity: one person on two handsets is
- * two devices, and both carry the same identifier.
+ * Sets the external user id. Pass null to clear it without opting out.
  */
 export function identify(externalId: string | null): void {
   if (externalId === null) {
@@ -128,37 +87,30 @@ export function identify(externalId: string | null): void {
 }
 
 /**
- * Replaces the tags whole.
- *
- * The natives hold the canonical map and the server replaces what they hold, so
- * this is the complete set every time.
+ * Replaces all device tags. Omitted tags are removed.
  */
 export function setTags(tags: Record<string, TagValue>): void {
   NativeCarillon.setTags(tags);
 }
 
-/** Opts the device back in. Notifications resume at the next send. */
+/**
+ * Sets opted_in to true and syncs it to the server. Does not change OS permission.
+ */
 export function optIn(): void {
   NativeCarillon.optIn();
 }
 
 /**
- * Opts the device out. The row stays, so the person can be opted back in, and
- * so the customer can still see that this handset exists.
+ * Sets opted_in to false and syncs it to the server. Keeps the device registered.
  */
 export function optOut(): void {
   NativeCarillon.optOut();
 }
 
 /**
- * Subscribes to opens. Returns the unsubscribe.
- *
- * The order of the two calls below is the whole of the cold-start case, and it
- * is the reverse of what reads naturally. An app launched by a tap has its open
- * waiting inside the native before any JavaScript has run; the native releases
- * what it is holding when the handler is installed, which is what
- * `startObservingOpens` does. Attaching the listener afterwards would arrive
- * after the replay it exists to catch.
+ * Subscribes to notification opens and returns an unsubscribe function.
+ * Pending cold-start opens are replayed when the first subscriber attaches.
+ * The listener must attach before startObservingOpens triggers that replay.
  */
 export function onOpened(handler: OpenedHandler): () => void {
   const subscription = NativeCarillon.onOpened((event) => {
@@ -172,7 +124,9 @@ export function onOpened(handler: OpenedHandler): () => void {
   };
 }
 
-/** One call, one value, made to be pasted into a support ticket. */
+/**
+ * Returns SDK configuration, registration status, and queued-event count. Available in release builds.
+ */
 export async function debugInfo(): Promise<DebugInfo> {
   return (await NativeCarillon.debugInfo()) as DebugInfo;
 }
