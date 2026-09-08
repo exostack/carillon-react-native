@@ -3,28 +3,9 @@ import Foundation
 import UIKit
 import UserNotifications
 
-/// The Swift half of the bridge.
-///
-/// The SDK's surface is pure Swift — a caseless enum with static members, which
-/// Objective-C cannot see at all — so everything the TurboModule needs to say
-/// is said here and re-exposed as `@objc`. Nothing is decided in this file: it
-/// converts what crossed the JavaScript boundary into what the SDK takes, and
-/// back.
-///
-/// It is also the app's own entry point for the two delegate callbacks the SDK
-/// swizzles nothing to obtain. An app links this package, not the Swift SDK it
-/// wraps — the SDK is resolved for this pod alone — so `import Carillon` in an
-/// AppDelegate would not compile. The forwarding calls at the bottom of this
-/// file are the same three, one import away:
-///
-/// ```swift
-/// import CarillonReactNative
-///
-/// func application(_ app: UIApplication,
-///                  didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
-///   CarillonBridge.didRegister(token: token)
-/// }
-/// ```
+/// Exposes the Swift SDK to Objective-C and the React Native TurboModule.
+/// Apps import CarillonReactNative and forward APNs registration and open
+/// callbacks through this class. See the README for delegate setup.
 @objc(CarillonBridge)
 public final class CarillonBridge: NSObject {
   @objc
@@ -85,8 +66,7 @@ public final class CarillonBridge: NSObject {
     return object
   }
 
-  /// Installs the SDK's open handler, which is what makes it hand over the tap
-  /// it has been holding since launch.
+  /// Installs the native open handler and replays buffered opens.
   @objc
   public static func observeOpens(_ handler: @escaping ([String: Any]) -> Void) {
     Carillon.onOpened = { opened in
@@ -109,13 +89,8 @@ public final class CarillonBridge: NSObject {
 
   // MARK: - The delegate callbacks the app forwards
 
-  /// Forwarded from
-  /// `application(_:didRegisterForRemoteNotificationsWithDeviceToken:)`.
-  ///
-  /// Takes the `Data` APNs handed over and lets the SDK hex-encode it, so the
-  /// app never holds the string. Passing `token.description` instead is the
-  /// single most common integration mistake there is, and this is the shape
-  /// that makes it impossible.
+  /// Forward application(_:didRegisterForRemoteNotificationsWithDeviceToken:).
+  /// Pass the original APNs Data token; the SDK hex-encodes it.
   @objc
   public static func didRegister(token: Data) {
     Carillon.didRegister(token: token)
@@ -128,21 +103,14 @@ public final class CarillonBridge: NSObject {
     Carillon.didFailToRegister(error)
   }
 
-  /// Forwarded from `userNotificationCenter(_:didReceive:withCompletionHandler:)`.
-  ///
-  /// Forward every response. A notification that is not ours carries no
-  /// delivery id and is ignored, so the app does not have to work out which is
-  /// which.
+  /// Forward userNotificationCenter(_:didReceive:withCompletionHandler:).
+  /// Notifications without a Carillon delivery id are ignored.
   @objc
   public static func didOpen(_ response: UNNotificationResponse) {
     Carillon.didOpen(response)
   }
 
-  /// A JavaScript value, as the SDK's tag type.
-  ///
-  /// Anything that is not a flat scalar is dropped rather than refused: the
-  /// TypeScript surface is where a tag's shape is rejected, and it is rejected
-  /// there before the call is written rather than after it has shipped.
+  /// Converts scalar JavaScript tag values. Unsupported values are omitted.
   private static func tagValue(of value: Any) -> TagValue? {
     if let text = value as? String { return .string(text) }
 
@@ -163,9 +131,7 @@ public final class CarillonBridge: NSObject {
     return .int(Int(value))
   }
 
-  /// The instant of a tap, as JavaScript will read it — the same shape the SDK
-  /// writes into a request body, spelled out again because it is internal
-  /// there. A bridge may repeat a format; never a rule.
+  /// UTC timestamp format exposed to JavaScript, including milliseconds.
   private static let instantFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
