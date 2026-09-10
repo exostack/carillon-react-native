@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import {
   addCarillonForwarding,
+  addAndroidOpenForwarding,
   addGoogleServicesClasspath,
   addImport,
   addMessagingService,
@@ -203,5 +204,88 @@ describe('the google-services wiring', () => {
     const once = applyGoogleServicesPlugin('apply plugin: "com.android.application"\n');
 
     expect(applyGoogleServicesPlugin(once)).toBe(once);
+  });
+});
+
+describe("Android notification opens", () => {
+  const activity = `package dev.example
+
+import android.os.Bundle
+import com.facebook.react.ReactActivity
+
+class MainActivity : ReactActivity() {
+  override fun onCreate(savedInstanceState: Bundle?) {
+    setTheme(R.style.AppTheme)
+    super.onCreate(null)
+    keepExistingBehavior()
+  }
+}`;
+
+  it("forwards cold and warm opens after their super calls", () => {
+    const result = addAndroidOpenForwarding(activity);
+    expect(result).toContain(
+      "super.onCreate(null)\n    Carillon.didOpen(intent)",
+    );
+    expect(result).toContain(
+      "super.onNewIntent(intent)\n    setIntent(intent)\n    Carillon.didOpen(intent)",
+    );
+    expect(result).toContain("keepExistingBehavior()");
+    expect(result).toContain("import dev.carillon.sdk.Carillon");
+    expect(addAndroidOpenForwarding(result)).toBe(result);
+  });
+
+  it("keeps an existing onNewIntent and setIntent with a different parameter name", () => {
+    const input = activity.replace(
+      "  override fun onCreate",
+      `  override fun onNewIntent(incoming: android.content.Intent) {
+    super.onNewIntent(incoming)
+    setIntent(incoming)
+    keepWarmBehavior()
+  }
+  override fun onCreate`,
+    );
+    const result = addAndroidOpenForwarding(input);
+    expect(result).toContain(
+      "setIntent(incoming)\n    Carillon.didOpen(incoming)",
+    );
+    expect(result.match(/override fun onNewIntent/g)).toHaveLength(1);
+    expect(result.match(/setIntent\(incoming\)/g)).toHaveLength(1);
+    expect(result).toContain("keepWarmBehavior()");
+    expect(addAndroidOpenForwarding(result)).toBe(result);
+  });
+
+  it("adds a missing callback even when the other is already forwarded", () => {
+    const result = addAndroidOpenForwarding(
+      activity.replace(
+        "super.onCreate(null)",
+        "super.onCreate(null)\n    Carillon.didOpen(intent)",
+      ),
+    );
+    expect(result.match(/Carillon.didOpen\(/g)).toHaveLength(2);
+    expect(result).toContain("override fun onNewIntent");
+  });
+
+  it("keeps the package declaration before new imports", () => {
+    const result = addAndroidOpenForwarding(
+      "package dev.example\n\nclass MainActivity : ReactActivity() {}",
+    );
+    expect(
+      result.startsWith(
+        "package dev.example\n\nimport dev.carillon.sdk.Carillon",
+      ),
+    ).toBe(true);
+    expect(addAndroidOpenForwarding(result)).toBe(result);
+  });
+
+  it("refuses Java and unrecognized callback structure explicitly", () => {
+    expect(() =>
+      addAndroidOpenForwarding("class MainActivity {}", "java"),
+    ).toThrow("Kotlin");
+    expect(() => addAndroidOpenForwarding("class OtherActivity {}")).toThrow(
+      "MainActivity",
+    );
+    expect(() =>
+      addAndroidOpenForwarding(activity.replace("super.onCreate(null)", "")),
+    ).toThrow("super.onCreate");
   });
 });

@@ -46,8 +46,8 @@ OS permission. Pass an API base URL as `endpoint` for staging or local developme
 Debug logging is disabled in iOS release builds and non-debuggable Android apps.
 
 `onOpened` returns an unsubscribe function. Pending cold-start opens are replayed
-when the first subscriber attaches. The payload contains a `carillon` object on
-iOS and a JSON string on Android; use `deliveryId` to avoid parsing it yourself.
+when the first subscriber attaches. The reserved `payload.carillon` field is an object on both platforms; the bridge
+parses the Android JSON stamp. Customer payload fields remain unchanged.
 
 ## Native setup
 
@@ -146,7 +146,10 @@ Add the plugin to your Expo configuration:
 
 `expo prebuild` then writes the push entitlement and the three forwarded
 callbacks on iOS, and the messaging service, the runtime permission and the
-google-services wiring on Android. Every transform is idempotent, because
+google-services wiring on Android. It also forwards notification opens from
+Kotlin `MainActivity.onCreate` and `onNewIntent`, preserving existing callbacks.
+Java activities require conversion to Kotlin for this plugin; bare installations
+can use the manual forwarding shown above. Every transform is idempotent, because
 prebuild runs them again over their own output.
 
 ## Native dependencies

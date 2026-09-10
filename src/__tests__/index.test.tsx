@@ -152,6 +152,24 @@ describe('the state the app sets', () => {
 });
 
 describe('onOpened', () => {
+  it('normalizes the Android stamp without changing customer data or the native event', () => {
+    const seen: unknown[] = [];
+    Carillon.onOpened((notification) => seen.push(notification));
+    const stamp = { delivery_id: anOpen.deliveryId, image: 'https://example.com/image.png' };
+    const event = { ...anOpen, payload: { order_id: '42', carillon: JSON.stringify(stamp) } };
+    mockNative.emit(event);
+    expect(seen).toEqual([{ ...event, payload: { order_id: '42', carillon: stamp } }]);
+    expect(typeof event.payload.carillon).toBe('string');
+  });
+
+  it.each(['invalid', 'null', '[]', '42'])('preserves malformed stamps: %s', (carillon) => {
+    const seen: unknown[] = [];
+    Carillon.onOpened((notification) => seen.push(notification));
+    const event = { ...anOpen, payload: { carillon } };
+    mockNative.emit(event);
+    expect(seen).toEqual([event]);
+  });
+
   it('hands the whole payload over', () => {
     const seen: unknown[] = [];
     Carillon.onOpened((notification) => seen.push(notification));
