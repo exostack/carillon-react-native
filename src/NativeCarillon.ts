@@ -32,6 +32,13 @@ export interface Spec extends TurboModule {
  * Attach the JavaScript listener first to avoid losing cold-start events. Idempotent.
  */
   startObservingOpens(): void;
+  startObservingDeviceId(): void;
+  startObservingReceived(): void;
+  stopObservingReceived(): void;
+  finishReceived(requestId: string, decision: string): void;
+  clearNotifications(): void;
+  readonly onReceived: CodegenTypes.EventEmitter<CodegenTypes.UnsafeObject>;
+  readonly onDeviceIdChanged: CodegenTypes.EventEmitter<CodegenTypes.UnsafeObject>;
 
   /**
  * OpenedNotification payload. UnsafeObject allows application-defined payload keys.

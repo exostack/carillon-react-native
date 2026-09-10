@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import {
   addCarillonForwarding,
+  addForegroundForwarding,
   addAndroidOpenForwarding,
   addGoogleServicesClasspath,
   addImport,
@@ -287,5 +288,47 @@ class MainActivity : ReactActivity() {
     expect(() =>
       addAndroidOpenForwarding(activity.replace("super.onCreate(null)", "")),
     ).toThrow("super.onCreate");
+  });
+});
+
+
+describe('foreground forwarding', () => {
+  it('inserts a single callback even when older forwarding already exists', () => {
+    const result = addForegroundForwarding(addCarillonForwarding(expoAppDelegate));
+    expect(result).toContain('CarillonBridge.willPresent(notification, completionHandler: completionHandler)');
+    expect(addForegroundForwarding(result)).toBe(result);
+  });
+  it('preserves an existing callback for other notification providers', () => {
+    const source = `class AppDelegate: ExpoAppDelegate {
+      override func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completion: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completion([.sound])
+      }
+    }`;
+    const result = addForegroundForwarding(source);
+    expect(result).toContain('CarillonBridge.willPresent(notification, completionHandler: completion)');
+    expect(result).toContain('completion([.sound])');
+    expect(addForegroundForwarding(result)).toBe(result);
+  });
+});
+
+
+describe('notification service extension', () => {
+  it('embeds one extension and links its Swift product idempotently', () => {
+    const xcode = require('xcode');
+    const path = require('node:path');
+    const { addNotificationExtension, EXTENSION_NAME } = require('../extension');
+    const project = xcode.project(path.join(__dirname, '../../../example/ios/CarillonExample.xcodeproj/project.pbxproj'));
+    project.parseSync();
+    addNotificationExtension(project, 'dev.carillon.example');
+    const first = project.writeSync();
+    expect(first).toContain('dev.carillon.example.CarillonNotificationExtension');
+    expect(first).toContain('com.apple.product-type.app-extension');
+    expect(first).toContain('XCSwiftPackageProductDependency');
+    expect(first).toContain('NotificationService.swift');
+    expect(first).toContain('CarillonNotificationExtension.appex');
+    const targets = Object.values(project.pbxNativeTargetSection()).filter((target: unknown) => (target as { name?: string }).name === `"${EXTENSION_NAME}"`);
+    expect(targets).toHaveLength(1);
+    addNotificationExtension(project, 'dev.carillon.example');
+    expect(project.writeSync()).toBe(first);
   });
 });
