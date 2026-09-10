@@ -50,6 +50,46 @@ export type OpenedNotification = {
   payload: Record<string, unknown>;
 };
 
+export type ForegroundDecision = 'show' | 'suppress';
+export type ReceivedNotification = {
+  deliveryId: string | null;
+  title: string | null;
+  body: string | null;
+  data: Record<string, unknown>;
+  image: string | null;
+  threadId: string | null;
+};
+
+let removeReceived: (() => void) | undefined;
+
+/** Replaces the foreground handler. Native presentation defaults to show after three seconds. */
+export function onReceived(
+  handler: (notification: ReceivedNotification) => ForegroundDecision | Promise<ForegroundDecision>
+): () => void {
+  removeReceived?.();
+  const subscription = NativeCarillon.onReceived((event) => {
+    const { requestId, ...notification } = event as ReceivedNotification & { requestId: string };
+    Promise.resolve().then(() => handler(notification)).then(
+      (decision) => NativeCarillon.finishReceived(requestId, decision === 'suppress' ? 'suppress' : 'show'),
+      () => NativeCarillon.finishReceived(requestId, 'show')
+    );
+  });
+  const remove = () => {
+    subscription.remove();
+    if (removeReceived === remove) {
+      removeReceived = undefined;
+      NativeCarillon.stopObservingReceived();
+    }
+  };
+  removeReceived = remove;
+  NativeCarillon.startObservingReceived();
+  return remove;
+}
+
+export function clearNotifications(): void {
+  NativeCarillon.clearNotifications();
+}
+
 export type OpenedHandler = (notification: OpenedNotification) => void;
 
 /**
@@ -138,8 +178,22 @@ export function onOpened(handler: OpenedHandler): () => void {
 }
 
 /**
- * Returns SDK configuration, registration status, and queued-event count. Available in release builds.
+ * Returns the registered device id, or null before registration succeeds.
  */
+export async function getDeviceId(): Promise<string | null> {
+  const info = (await NativeCarillon.debugInfo()) as Record<string, unknown>;
+  return typeof info.device_id === 'string' ? info.device_id : null;
+}
+
+export function onDeviceIdChanged(handler: (id: string) => void): () => void {
+  const subscription = NativeCarillon.onDeviceIdChanged((event) => {
+    const payload = event as Record<string, unknown>;
+    if (typeof payload.deviceId === 'string') handler(payload.deviceId);
+  });
+  NativeCarillon.startObservingDeviceId();
+  return () => subscription.remove();
+}
+
 export async function debugInfo(): Promise<DebugInfo> {
   return (await NativeCarillon.debugInfo()) as DebugInfo;
 }
@@ -152,7 +206,11 @@ const Carillon = {
   optIn,
   optOut,
   onOpened,
+  onReceived,
+  clearNotifications,
   debugInfo,
+  getDeviceId,
+  onDeviceIdChanged,
 };
 
 export default Carillon;

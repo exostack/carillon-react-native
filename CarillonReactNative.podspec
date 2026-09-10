@@ -38,7 +38,7 @@ Pod::Spec.new do |s|
   if carillon_swift.empty?
     spm_dependency(s,
       url: "https://github.com/exostack/carillon-swift.git",
-      requirement: { kind: "upToNextMajorVersion", minimumVersion: "0.1.1" },
+      requirement: { kind: "upToNextMajorVersion", minimumVersion: "0.2.0" },
       products: ["Carillon"])
   else
     spm_dependency(s,

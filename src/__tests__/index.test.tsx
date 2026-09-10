@@ -14,6 +14,21 @@ const mockNative = {
   held: [] as unknown[],
   calls: [] as string[],
 
+  receivedListeners: [] as Listener[],
+  onReceived(listener: Listener) {
+    mockNative.receivedListeners.push(listener);
+    return { remove: () => { mockNative.receivedListeners = mockNative.receivedListeners.filter((item) => item !== listener); } };
+  },
+  startObservingReceived: jest.fn(),
+  stopObservingReceived: jest.fn(),
+  finishReceived: jest.fn(),
+  clearNotifications: jest.fn(),
+  deviceListeners: [] as Listener[],
+  onDeviceIdChanged(listener: Listener) {
+    mockNative.deviceListeners.push(listener);
+    return { remove: () => { mockNative.deviceListeners = mockNative.deviceListeners.filter((item) => item !== listener); } };
+  },
+  startObservingDeviceId: jest.fn(() => { mockNative.deviceListeners.forEach((listener) => listener({deviceId: 'first'})); }),
   configure: jest.fn(),
   requestPermission: jest.fn(async () => 'allowed'),
   identify: jest.fn(),
@@ -222,5 +237,53 @@ describe('debugInfo', () => {
     await expect(Carillon.debugInfo()).resolves.toEqual({
       sdk_version: '0.1.0',
     });
+  });
+});
+
+
+it('attaches device ID listeners before native observation and removes them', () => {
+  const changes: string[] = [];
+  const off = Carillon.onDeviceIdChanged((id) => changes.push(id));
+  expect(changes).toEqual(['first']);
+  off();
+  mockNative.deviceListeners.forEach((listener) => listener({deviceId: 'second'}));
+  expect(changes).toEqual(['first']);
+});
+
+it('returns null until a device ID has been confirmed', async () => {
+  expect(await Carillon.getDeviceId()).toBeNull();
+});
+
+
+describe('foreground presentation', () => {
+  const event = { requestId: 'request', deliveryId: 'delivery', title: 'Hello', body: 'Message', data: { url: '/chat' }, image: null, threadId: 'chat' };
+  it('forwards an asynchronous suppress decision and removes the listener', async () => {
+    const handler = jest.fn(async () => 'suppress' as const);
+    const remove = Carillon.onReceived(handler);
+    mockNative.receivedListeners.forEach((listener) => listener(event));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(handler).toHaveBeenCalledWith({ deliveryId: 'delivery', title: 'Hello', body: 'Message', data: { url: '/chat' }, image: null, threadId: 'chat' });
+    expect(mockNative.finishReceived).toHaveBeenCalledWith('request', 'suppress');
+    remove();
+    expect(mockNative.receivedListeners).toHaveLength(0);
+    expect(mockNative.stopObservingReceived).toHaveBeenCalled();
+  });
+  it('falls back to show if the handler throws', async () => {
+    const remove = Carillon.onReceived(() => { throw new Error('broken app handler'); });
+    mockNative.receivedListeners.forEach((listener) => listener(event));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(mockNative.finishReceived).toHaveBeenCalledWith('request', 'show');
+    remove();
+  });
+  it('replaces the handler and ignores an older unsubscribe', () => {
+    const old = Carillon.onReceived(() => 'suppress');
+    const current = Carillon.onReceived(() => 'show');
+    mockNative.stopObservingReceived.mockClear();
+    old();
+    expect(mockNative.stopObservingReceived).not.toHaveBeenCalled();
+    expect(mockNative.receivedListeners).toHaveLength(1);
+    current();
+    Carillon.clearNotifications();
+    expect(mockNative.clearNotifications).toHaveBeenCalled();
   });
 });

@@ -1,3 +1,4 @@
+import { withNotificationExtension } from './extension';
 import {
   AndroidConfig,
   withAndroidManifest,
@@ -131,6 +132,36 @@ export function addCarillonForwarding(contents: string): string {
   ].join('');
 
   return addImport('CarillonReactNative', addImport('UserNotifications', inserted));
+}
+
+/** Route presentation through the bridge once; preserve existing handling for other providers. */
+export function addForegroundForwarding(contents: string): string {
+  if (contents.includes('CarillonBridge.willPresent(')) return contents;
+  const existing = /func\s+userNotificationCenter\s*\([\s\S]*?willPresent\s+(\w+):\s*UNNotification\s*,\s*withCompletionHandler\s+(\w+):[^\{]+\{/.exec(contents);
+  if (existing) {
+    const offset = existing.index + existing[0].length;
+    const notification = existing[1]!;
+    const completion = existing[2]!;
+    return contents.slice(0, offset) + `
+    if ${notification}.request.content.userInfo["carillon"] != nil {
+      CarillonBridge.willPresent(${notification}, completionHandler: ${completion})
+      return
+    }
+` + contents.slice(offset);
+  }
+  const declaration = /class\s+AppDelegate\b[^\{]*\{/.exec(contents);
+  if (!declaration) throw new Error('Cannot find AppDelegate for Carillon foreground forwarding.');
+  const start = declaration.index + declaration[0].length;
+  const method = `
+  ${needsOverride(contents) ? 'override ' : ''}func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    CarillonBridge.willPresent(notification, completionHandler: completionHandler)
+  }
+`;
+  return addImport('CarillonReactNative', addImport('UserNotifications', contents.slice(0, start) + method + contents.slice(start)));
 }
 
 /** Adds an import after the last one, unless the file already has it. */
@@ -302,9 +333,9 @@ const withCarillon: ConfigPlugin = (config) => {
   });
 
   config = withAppDelegate(config, (appDelegate) => {
-    appDelegate.modResults.contents = addCarillonForwarding(
+    appDelegate.modResults.contents = addForegroundForwarding(addCarillonForwarding(
       appDelegate.modResults.contents
-    );
+    ));
 
     return appDelegate;
   });
@@ -343,6 +374,8 @@ const withCarillon: ConfigPlugin = (config) => {
 
     return gradle;
   });
+
+  config = withNotificationExtension(config);
 
   return AndroidConfig.Permissions.withPermissions(config, [
     'android.permission.POST_NOTIFICATIONS',

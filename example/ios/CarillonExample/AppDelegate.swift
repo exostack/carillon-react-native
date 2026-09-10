@@ -70,15 +70,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     completionHandler()
   }
 
-  /// Shows the notification while the app is in the foreground, so a bench on
-  /// screen still sees something arrive. Presentation is the app's business —
-  /// the SDK takes no position on it.
   func userNotificationCenter(
     _ center: UNUserNotificationCenter,
     willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
-    completionHandler([.banner, .sound, .badge])
+    CarillonBridge.willPresent(notification, completionHandler: completionHandler)
   }
 }
 

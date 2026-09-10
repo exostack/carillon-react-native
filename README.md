@@ -155,7 +155,7 @@ prebuild runs them again over their own output.
 ## Native dependencies
 
 The podspec resolves `carillon-swift` through Swift Package Manager with minimum
-version `0.1.1`. Gradle resolves `dev.carillon:carillon:0.1.1`.
+version `0.2.0`. Gradle resolves `dev.carillon:carillon:0.2.0`.
 
 For local development, clone the native SDKs beside this repository:
 
@@ -207,3 +207,48 @@ Expo configuration transforms. Registration and retry tests live in the native S
 
 [swift]: https://github.com/exostack/carillon-swift
 [kotlin]: https://github.com/exostack/carillon-kotlin
+
+
+## Device identity
+
+```ts
+const id = await Carillon.getDeviceId();
+const unsubscribe = Carillon.onDeviceIdChanged((id) => console.log(id));
+```
+
+The SDK persists a random installation secret and the last confirmed device ID.
+Token rotation reuses that ID when the server validates the proof. Reinstallation
+or merging with an existing token registration can change the ID; the callback
+fires on first registration and when the confirmed ID changes. The ID itself is
+not a credential. Never log or export the installation secret.
+
+
+## Foreground presentation and images
+
+```ts
+const off = Carillon.onReceived(async (notification) => {
+  // Use notification.data for your route or in-app UI.
+  return 'show' // or 'suppress'
+})
+Carillon.clearNotifications()
+```
+
+Only one foreground handler is active; a new subscription replaces it. Native code defaults to
+showing after three seconds without an answer. Exceptions and rejected promises also show.
+Clearing removes delivered notifications and, on Android, cancels pending display work.
+
+For bare iOS, forward `userNotificationCenter(_:willPresent:withCompletionHandler:)` to
+`CarillonBridge.willPresent(notification, completionHandler: completionHandler)`.
+The Expo plugin inserts this forwarding. Keep the delegate installed at launch.
+
+For iOS images, the Expo plugin creates `CarillonNotificationExtension`, including its Swift
+package product dependency and the EAS `extra.eas.build.experimental.ios.appExtensions` entry.
+Set `ios.bundleIdentifier`; sign the extension bundle `<bundle>.CarillonNotificationExtension`
+and rebuild after prebuild. No App Group is needed. Bare apps add that target using the
+[Swift SDK extension setup](https://github.com/exostack/carillon-swift#notification-images).
+Replace the OneSignal service extension rather than embedding both.
+
+Android foreground rendering uses `carillon_default` unless the requested channel already
+exists. Supply `carillon_notification_icon` as a drawable; otherwise the app icon is used.
+Images have a 10-second budget and fall back to text. Android 8+ channels control sound;
+Android 13+ needs notification permission. FCM handles background notification display.

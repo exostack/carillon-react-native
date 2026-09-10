@@ -83,8 +83,70 @@ public final class CarillonBridge: NSObject {
   }
 
   @objc
+  public static func observeDeviceId(_ handler: @escaping ([String: Any]) -> Void) {
+    Carillon.onDeviceIdChanged = { handler(["deviceId": $0]) }
+  }
+
+  @objc
   public static func stopObservingOpens() {
+    stopObservingReceived()
     Carillon.onOpened = nil
+    Carillon.onDeviceIdChanged = nil
+  }
+
+  private static let receivedLock = NSLock()
+  private static var receivedHandler: (([String: Any]) -> Void)?
+  private static var receivedAnswers: [String: (UNNotificationPresentationOptions) -> Void] = [:]
+
+  @objc public static func observeReceived(_ handler: @escaping ([String: Any]) -> Void) {
+    receivedLock.lock()
+    receivedHandler = handler
+    receivedLock.unlock()
+  }
+
+  @objc public static func finishReceived(_ requestId: String, decision: String) {
+    receivedLock.lock()
+    let completion = receivedAnswers.removeValue(forKey: requestId)
+    receivedLock.unlock()
+    completion?(decision == "suppress" ? [] : [.banner, .list, .sound, .badge])
+  }
+
+  @objc public static func stopObservingReceived() {
+    receivedLock.lock()
+    receivedHandler = nil
+    let pending = Array(receivedAnswers.values)
+    receivedAnswers.removeAll()
+    receivedLock.unlock()
+    for completion in pending { completion([.banner, .list, .sound, .badge]) }
+  }
+
+  @objc public static func clearNotifications() { Carillon.clearNotifications() }
+
+  @objc public static func willPresent(
+    _ notification: UNNotification,
+    completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    receivedLock.lock()
+    guard let handler = receivedHandler else {
+      receivedLock.unlock()
+      completionHandler([.banner, .list, .sound, .badge])
+      return
+    }
+    let id = UUID().uuidString
+    receivedAnswers[id] = completionHandler
+    receivedLock.unlock()
+    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { finishReceived(id, decision: "show") }
+    let content = notification.request.content
+    let received = ReceivedNotification(userInfo: content.userInfo, title: content.title, body: content.body)
+    handler([
+      "requestId": id,
+      "deliveryId": received.deliveryId as Any? ?? NSNull(),
+      "title": received.title as Any? ?? NSNull(),
+      "body": received.body as Any? ?? NSNull(),
+      "data": received.data,
+      "image": received.image as Any? ?? NSNull(),
+      "threadId": received.threadId as Any? ?? NSNull(),
+    ])
   }
 
   // MARK: - The delegate callbacks the app forwards
