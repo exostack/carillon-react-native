@@ -114,7 +114,20 @@ export function optOut(): void {
  */
 export function onOpened(handler: OpenedHandler): () => void {
   const subscription = NativeCarillon.onOpened((event) => {
-    handler(event as OpenedNotification);
+    const notification = event as OpenedNotification;
+    const stamp = notification.payload.carillon;
+    if (typeof stamp === 'string') {
+      try {
+        const parsed: unknown = JSON.parse(stamp);
+        if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          handler({ ...notification, payload: { ...notification.payload, carillon: parsed } });
+          return;
+        }
+      } catch {
+        // Keep malformed third-party payloads observable without losing the open callback.
+      }
+    }
+    handler(notification);
   });
 
   NativeCarillon.startObservingOpens();

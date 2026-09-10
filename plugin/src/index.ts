@@ -4,6 +4,7 @@ import {
   withAppBuildGradle,
   withAppDelegate,
   withEntitlementsPlist,
+  withMainActivity,
   withProjectBuildGradle,
   type ConfigPlugin,
 } from '@expo/config-plugins';
@@ -232,6 +233,67 @@ export function applyGoogleServicesPlugin(contents: string): string {
   return `${contents.trimEnd()}\n\nif (file("google-services.json").exists()) {\n    apply plugin: "com.google.gms.google-services"\n}\n`;
 }
 
+/** Forward cold and warm opens without replacing existing activity callbacks. */
+export function addAndroidOpenForwarding(
+  contents: string,
+  language = "kt",
+): string {
+  if (language !== "kt") {
+    throw new Error(
+      "Carillon requires a Kotlin MainActivity for automatic open forwarding. Convert MainActivity to Kotlin or forward Carillon.didOpen(intent) manually.",
+    );
+  }
+  let result = contents;
+  for (const name of ["onCreate", "onNewIntent"] as const) {
+    const method = new RegExp(
+      `override\\s+fun\\s+${name}\\s*\\(\\s*(\\w+)\\s*:[^{]*?\\)[^{]*\\{`,
+    ).exec(result);
+    if (method) {
+      const start = method.index + method[0].length;
+      const end = closingBraceOf(result, start);
+      if (end === -1)
+        throw new Error(`Cannot find the end of MainActivity.${name}.`);
+      const body = result.slice(start, end);
+      if (/\bCarillon\.didOpen\s*\(/.test(body)) continue;
+      const call = new RegExp(`super\\.${name}\\s*\\([^)]*\\)`).exec(body);
+      if (!call)
+        throw new Error(
+          `MainActivity.${name} must call super.${name} before Carillon can forward notification opens.`,
+        );
+      const argument = name === "onCreate" ? "intent" : method[1]!;
+      const setIntent =
+        name === "onNewIntent" ? /\bsetIntent\s*\([^)]*\)/.exec(body) : null;
+      const after =
+        setIntent && setIntent.index > call.index ? setIntent : call;
+      const offset = start + after.index + after[0].length;
+      const set =
+        name === "onNewIntent" && !setIntent
+          ? `\n    setIntent(${argument})`
+          : "";
+      result = `${result.slice(0, offset)}${set}\n    Carillon.didOpen(${argument})${result.slice(offset)}`;
+    } else {
+      const declaration = /class\s+MainActivity\b[^\{]*\{/.exec(result);
+      if (!declaration)
+        throw new Error(
+          "Cannot find the Kotlin MainActivity class for Carillon open forwarding.",
+        );
+      const start = declaration.index + declaration[0].length;
+      const callback =
+        name === "onCreate"
+          ? "\n  override fun onCreate(savedInstanceState: android.os.Bundle?) {\n    super.onCreate(savedInstanceState)\n    Carillon.didOpen(intent)\n  }\n"
+          : "\n  override fun onNewIntent(intent: android.content.Intent) {\n    super.onNewIntent(intent)\n    setIntent(intent)\n    Carillon.didOpen(intent)\n  }\n";
+      result = `${result.slice(0, start)}${callback}${result.slice(start)}`;
+    }
+  }
+  if (!/^import .+$/m.test(result) && /^package .+$/m.test(result)) {
+    return result.replace(
+      /^(package .+)$/m,
+      "$1\n\nimport dev.carillon.sdk.Carillon",
+    );
+  }
+  return addImport("dev.carillon.sdk.Carillon", result);
+}
+
 const withCarillon: ConfigPlugin = (config) => {
   config = withEntitlementsPlist(config, (entitlements) => {
     entitlements.modResults = setApsEnvironment(entitlements.modResults);
@@ -245,6 +307,14 @@ const withCarillon: ConfigPlugin = (config) => {
     );
 
     return appDelegate;
+  });
+
+  config = withMainActivity(config, (activity) => {
+    activity.modResults.contents = addAndroidOpenForwarding(
+      activity.modResults.contents,
+      activity.modResults.language,
+    );
+    return activity;
   });
 
   config = withAndroidManifest(config, (manifest) => {
