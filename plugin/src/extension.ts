@@ -38,6 +38,8 @@ export const extensionPlist = `<?xml version="1.0" encoding="UTF-8"?>
 
 export function addNotificationExtension(project: Project, bundleId: string): void {
   const objects = project.hash.project.objects;
+  objects.PBXTargetDependency ??= {};
+  objects.PBXContainerItemProxy ??= {};
   const targets = project.pbxNativeTargetSection();
   const existing = Object.entries(targets).find(([, target]) => target !== null && typeof target === 'object' && 'name' in target && typeof target.name === 'string' && target.name.replaceAll('"', '') === EXTENSION_NAME);
   const app = project.getFirstTarget().firstTarget;
@@ -53,6 +55,9 @@ export function addNotificationExtension(project: Project, bundleId: string): vo
     Object.assign(config.buildSettings, {
       IPHONEOS_DEPLOYMENT_TARGET: settings.IPHONEOS_DEPLOYMENT_TARGET ?? '15.1',
       SWIFT_VERSION: '5.0',
+      SDKROOT: 'iphoneos',
+      SUPPORTED_PLATFORMS: '"iphoneos iphonesimulator"',
+      PRODUCT_MODULE_NAME: 'CarillonNotificationService',
       PRODUCT_BUNDLE_IDENTIFIER: `"${bundleId}.${EXTENSION_NAME}"`,
       APPLICATION_EXTENSION_API_ONLY: 'YES',
       TARGETED_DEVICE_FAMILY: settings.TARGETED_DEVICE_FAMILY ?? '"1,2"',
@@ -61,10 +66,15 @@ export function addNotificationExtension(project: Project, bundleId: string): vo
       ...(settings.DEVELOPMENT_TEAM ? { DEVELOPMENT_TEAM: settings.DEVELOPMENT_TEAM } : {}),
     });
   }
-  if (existing) return;
+  if (existing) {
+    const parent = project.getFirstTarget();
+    const dependencies = parent.firstTarget.dependencies ?? [];
+    if (!dependencies.some((reference: { value: string }) => objects.PBXTargetDependency[reference.value]?.target === target.uuid)) project.addTargetDependency(parent.uuid, [target.uuid]);
+    return;
+  }
   const source = `${EXTENSION_NAME}/NotificationService.swift`;
   project.addBuildPhase([source], 'PBXSourcesBuildPhase', 'Sources', target.uuid);
-  const group = project.addPbxGroup([source], EXTENSION_NAME);
+  const group = project.addPbxGroup([source], EXTENSION_NAME, '.');
   project.addToPbxGroup(group.uuid, project.getFirstProject().firstProject.mainGroup);
   const frameworks = project.addBuildPhase([], 'PBXFrameworksBuildPhase', 'Frameworks', target.uuid);
   const packageId = project.generateUuid();

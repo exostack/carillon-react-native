@@ -319,6 +319,8 @@ describe('notification service extension', () => {
     const { addNotificationExtension, EXTENSION_NAME } = require('../extension');
     const project = xcode.project(path.join(__dirname, '../../../example/ios/CarillonExample.xcodeproj/project.pbxproj'));
     project.parseSync();
+    delete project.hash.project.objects.PBXTargetDependency;
+    delete project.hash.project.objects.PBXContainerItemProxy;
     addNotificationExtension(project, 'dev.carillon.example');
     const first = project.writeSync();
     expect(first).toContain('dev.carillon.example.CarillonNotificationExtension');
@@ -328,6 +330,12 @@ describe('notification service extension', () => {
     expect(first).toContain('CarillonNotificationExtension.appex');
     const targets = Object.values(project.pbxNativeTargetSection()).filter((target: unknown) => (target as { name?: string }).name === `"${EXTENSION_NAME}"`);
     expect(targets).toHaveLength(1);
+    const objects = project.hash.project.objects;
+    const dependencies = project.getFirstTarget().firstTarget.dependencies;
+    expect(dependencies.some((reference: { value: string }) => objects.PBXTargetDependency[reference.value]?.target)).toBe(true);
+    expect(first).toContain('SDKROOT = iphoneos');
+    expect(first).toContain('PRODUCT_MODULE_NAME = CarillonNotificationService');
+    expect(first).not.toContain('path = undefined');
     addNotificationExtension(project, 'dev.carillon.example');
     expect(project.writeSync()).toBe(first);
   });
