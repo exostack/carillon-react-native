@@ -246,7 +246,8 @@ package product dependency and the EAS `extra.eas.build.experimental.ios.appExte
 Set `ios.bundleIdentifier`; sign the extension bundle `<bundle>.CarillonNotificationExtension`
 and rebuild after prebuild. No App Group is needed. Bare apps add that target using the
 [Swift SDK extension setup](https://github.com/exostack/carillon-swift#notification-images).
-Replace the another push provider service extension rather than embedding both.
+If the app already has a notification service extension, integrate the image helper
+into that extension rather than embedding a second one.
 
 Android foreground rendering uses `carillon_default` unless the requested channel already
 exists. Supply `carillon_notification_icon` as a drawable; otherwise the app icon is used.
