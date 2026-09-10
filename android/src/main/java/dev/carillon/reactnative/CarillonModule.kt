@@ -7,7 +7,12 @@ import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.ReadableType
 import com.facebook.react.bridge.WritableMap
 import dev.carillon.sdk.Carillon
+import dev.carillon.sdk.NotificationPresentation
 import dev.carillon.sdk.OpenedNotification
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import android.os.Handler
+import android.os.Looper
 import dev.carillon.sdk.TagValue
 import dev.carillon.sdk.tagOf
 import java.text.SimpleDateFormat
@@ -35,6 +40,8 @@ class CarillonModule(private val context: ReactApplicationContext) :
 
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
   private var observing = false
+  private val receivedAnswers = ConcurrentHashMap<String, (NotificationPresentation) -> Unit>()
+  private val receivedTimeouts = Handler(Looper.getMainLooper())
 
   override fun configure(key: String, endpoint: String?, debug: Boolean?) {
     // The defaults belong to the SDK, which is the only place they are written
@@ -99,8 +106,49 @@ class CarillonModule(private val context: ReactApplicationContext) :
     Carillon.onOpened = { opened -> emitOnOpened(openedOf(opened)) }
   }
 
+  override fun startObservingDeviceId() {
+    Carillon.onDeviceIdChanged = { id ->
+      val event = Arguments.createMap()
+      event.putString("deviceId", id)
+      emitOnDeviceIdChanged(event)
+    }
+  }
+
+  override fun clearNotifications() = Carillon.clearNotifications()
+
+  override fun startObservingReceived() {
+    Carillon.onReceivedAsync = { received, answer ->
+      val id = UUID.randomUUID().toString()
+      receivedAnswers[id] = answer
+      receivedTimeouts.postDelayed({ finishReceived(id, "show") }, 3000)
+      emitOnReceived(Arguments.createMap().apply {
+        putString("requestId", id)
+        putString("deliveryId", received.deliveryId)
+        putString("title", received.title)
+        putString("body", received.body)
+        putString("image", received.image)
+        putString("threadId", received.threadId)
+        putMap("data", Arguments.createMap().apply {
+          received.data.forEach { (key, value) -> putString(key, value) }
+        })
+      })
+    }
+  }
+
+  override fun finishReceived(requestId: String, decision: String) {
+    receivedAnswers.remove(requestId)?.invoke(if (decision == "suppress") NotificationPresentation.SUPPRESS else NotificationPresentation.SHOW)
+  }
+
+  override fun stopObservingReceived() {
+    Carillon.onReceivedAsync = null
+    receivedAnswers.keys.toList().forEach { finishReceived(it, "show") }
+    receivedTimeouts.removeCallbacksAndMessages(null)
+  }
+
   override fun invalidate() {
+    stopObservingReceived()
     Carillon.onOpened = null
+    Carillon.onDeviceIdChanged = null
     observing = false
     scope.cancel()
     super.invalidate()

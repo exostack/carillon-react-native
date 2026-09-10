@@ -1,4 +1,5 @@
 #import "Carillon.h"
+#import <UserNotifications/UserNotifications.h>
 
 #if __has_include(<CarillonReactNative/CarillonReactNative-Swift.h>)
 #import <CarillonReactNative/CarillonReactNative-Swift.h>
@@ -73,6 +74,37 @@
   [CarillonBridge observeOpens:^(NSDictionary<NSString *, id> *opened) {
     [weakSelf emitOnOpened:opened];
   }];
+}
+
+- (void)startObservingDeviceId
+{
+  __weak Carillon *weakSelf = self;
+  [CarillonBridge observeDeviceId:^(NSDictionary<NSString *, id> *event) {
+    [weakSelf emitOnDeviceIdChanged:event];
+  }];
+}
+
+- (void)clearNotifications
+{
+  [CarillonBridge clearNotifications];
+}
+
+- (void)startObservingReceived
+{
+  __weak Carillon *weakSelf = self;
+  [CarillonBridge observeReceived:^(NSDictionary<NSString *, id> *event) {
+    [weakSelf emitOnReceived:event];
+  }];
+}
+
+- (void)stopObservingReceived
+{
+  [CarillonBridge stopObservingReceived];
+}
+
+- (void)finishReceived:(NSString *)requestId decision:(NSString *)decision
+{
+  [CarillonBridge finishReceived:requestId decision:decision];
 }
 
 - (void)invalidate

@@ -46,8 +46,8 @@ OS permission. Pass an API base URL as `endpoint` for staging or local developme
 Debug logging is disabled in iOS release builds and non-debuggable Android apps.
 
 `onOpened` returns an unsubscribe function. Pending cold-start opens are replayed
-when the first subscriber attaches. The payload contains a `carillon` object on
-iOS and a JSON string on Android; use `deliveryId` to avoid parsing it yourself.
+when the first subscriber attaches. The reserved `payload.carillon` field is an object on both platforms; the bridge
+parses the Android JSON stamp. Customer payload fields remain unchanged.
 
 ## Native setup
 
@@ -146,13 +146,16 @@ Add the plugin to your Expo configuration:
 
 `expo prebuild` then writes the push entitlement and the three forwarded
 callbacks on iOS, and the messaging service, the runtime permission and the
-google-services wiring on Android. Every transform is idempotent, because
+google-services wiring on Android. It also forwards notification opens from
+Kotlin `MainActivity.onCreate` and `onNewIntent`, preserving existing callbacks.
+Java activities require conversion to Kotlin for this plugin; bare installations
+can use the manual forwarding shown above. Every transform is idempotent, because
 prebuild runs them again over their own output.
 
 ## Native dependencies
 
 The podspec resolves `carillon-swift` through Swift Package Manager with minimum
-version `0.1.1`. Gradle resolves `dev.carillon:carillon:0.1.1`.
+version `0.2.0`. Gradle resolves `dev.carillon:carillon:0.2.0`.
 
 For local development, clone the native SDKs beside this repository:
 
@@ -204,3 +207,49 @@ Expo configuration transforms. Registration and retry tests live in the native S
 
 [swift]: https://github.com/exostack/carillon-swift
 [kotlin]: https://github.com/exostack/carillon-kotlin
+
+
+## Device identity
+
+```ts
+const id = await Carillon.getDeviceId();
+const unsubscribe = Carillon.onDeviceIdChanged((id) => console.log(id));
+```
+
+The SDK persists a random installation secret and the last confirmed device ID.
+Token rotation reuses that ID when the server validates the proof. Reinstallation
+or merging with an existing token registration can change the ID; the callback
+fires on first registration and when the confirmed ID changes. The ID itself is
+not a credential. Never log or export the installation secret.
+
+
+## Foreground presentation and images
+
+```ts
+const off = Carillon.onReceived(async (notification) => {
+  // Use notification.data for your route or in-app UI.
+  return 'show' // or 'suppress'
+})
+Carillon.clearNotifications()
+```
+
+Only one foreground handler is active; a new subscription replaces it. Native code defaults to
+showing after three seconds without an answer. Exceptions and rejected promises also show.
+Clearing removes delivered notifications and, on Android, cancels pending display work.
+
+For bare iOS, forward `userNotificationCenter(_:willPresent:withCompletionHandler:)` to
+`CarillonBridge.willPresent(notification, completionHandler: completionHandler)`.
+The Expo plugin inserts this forwarding. Keep the delegate installed at launch.
+
+For iOS images, the Expo plugin creates `CarillonNotificationExtension`, including its Swift
+package product dependency and the EAS `extra.eas.build.experimental.ios.appExtensions` entry.
+Set `ios.bundleIdentifier`; sign the extension bundle `<bundle>.CarillonNotificationExtension`
+and rebuild after prebuild. No App Group is needed. Bare apps add that target using the
+[Swift SDK extension setup](https://github.com/exostack/carillon-swift#notification-images).
+If the app already has a notification service extension, integrate the image helper
+into that extension rather than embedding a second one.
+
+Android foreground rendering uses `carillon_default` unless the requested channel already
+exists. Supply `carillon_notification_icon` as a drawable; otherwise the app icon is used.
+Images have a 10-second budget and fall back to text. Android 8+ channels control sound;
+Android 13+ needs notification permission. FCM handles background notification display.

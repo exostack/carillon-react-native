@@ -2,6 +2,7 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "rootDir": "src",
+    "types": ["node"],
     "outDir": "build",
     // CommonJS, not the package's ESM: `expo prebuild` reaches this through
     // `require`, and a plugin it cannot require is a plugin that does not run.

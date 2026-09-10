@@ -1,6 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
 import {
   addCarillonForwarding,
+  addForegroundForwarding,
+  addAndroidOpenForwarding,
   addGoogleServicesClasspath,
   addImport,
   addMessagingService,
@@ -203,5 +205,138 @@ describe('the google-services wiring', () => {
     const once = applyGoogleServicesPlugin('apply plugin: "com.android.application"\n');
 
     expect(applyGoogleServicesPlugin(once)).toBe(once);
+  });
+});
+
+describe("Android notification opens", () => {
+  const activity = `package dev.example
+
+import android.os.Bundle
+import com.facebook.react.ReactActivity
+
+class MainActivity : ReactActivity() {
+  override fun onCreate(savedInstanceState: Bundle?) {
+    setTheme(R.style.AppTheme)
+    super.onCreate(null)
+    keepExistingBehavior()
+  }
+}`;
+
+  it("forwards cold and warm opens after their super calls", () => {
+    const result = addAndroidOpenForwarding(activity);
+    expect(result).toContain(
+      "super.onCreate(null)\n    Carillon.didOpen(intent)",
+    );
+    expect(result).toContain(
+      "super.onNewIntent(intent)\n    setIntent(intent)\n    Carillon.didOpen(intent)",
+    );
+    expect(result).toContain("keepExistingBehavior()");
+    expect(result).toContain("import dev.carillon.sdk.Carillon");
+    expect(addAndroidOpenForwarding(result)).toBe(result);
+  });
+
+  it("keeps an existing onNewIntent and setIntent with a different parameter name", () => {
+    const input = activity.replace(
+      "  override fun onCreate",
+      `  override fun onNewIntent(incoming: android.content.Intent) {
+    super.onNewIntent(incoming)
+    setIntent(incoming)
+    keepWarmBehavior()
+  }
+  override fun onCreate`,
+    );
+    const result = addAndroidOpenForwarding(input);
+    expect(result).toContain(
+      "setIntent(incoming)\n    Carillon.didOpen(incoming)",
+    );
+    expect(result.match(/override fun onNewIntent/g)).toHaveLength(1);
+    expect(result.match(/setIntent\(incoming\)/g)).toHaveLength(1);
+    expect(result).toContain("keepWarmBehavior()");
+    expect(addAndroidOpenForwarding(result)).toBe(result);
+  });
+
+  it("adds a missing callback even when the other is already forwarded", () => {
+    const result = addAndroidOpenForwarding(
+      activity.replace(
+        "super.onCreate(null)",
+        "super.onCreate(null)\n    Carillon.didOpen(intent)",
+      ),
+    );
+    expect(result.match(/Carillon.didOpen\(/g)).toHaveLength(2);
+    expect(result).toContain("override fun onNewIntent");
+  });
+
+  it("keeps the package declaration before new imports", () => {
+    const result = addAndroidOpenForwarding(
+      "package dev.example\n\nclass MainActivity : ReactActivity() {}",
+    );
+    expect(
+      result.startsWith(
+        "package dev.example\n\nimport dev.carillon.sdk.Carillon",
+      ),
+    ).toBe(true);
+    expect(addAndroidOpenForwarding(result)).toBe(result);
+  });
+
+  it("refuses Java and unrecognized callback structure explicitly", () => {
+    expect(() =>
+      addAndroidOpenForwarding("class MainActivity {}", "java"),
+    ).toThrow("Kotlin");
+    expect(() => addAndroidOpenForwarding("class OtherActivity {}")).toThrow(
+      "MainActivity",
+    );
+    expect(() =>
+      addAndroidOpenForwarding(activity.replace("super.onCreate(null)", "")),
+    ).toThrow("super.onCreate");
+  });
+});
+
+
+describe('foreground forwarding', () => {
+  it('inserts a single callback even when older forwarding already exists', () => {
+    const result = addForegroundForwarding(addCarillonForwarding(expoAppDelegate));
+    expect(result).toContain('CarillonBridge.willPresent(notification, completionHandler: completionHandler)');
+    expect(addForegroundForwarding(result)).toBe(result);
+  });
+  it('preserves an existing callback for other notification providers', () => {
+    const source = `class AppDelegate: ExpoAppDelegate {
+      override func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completion: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completion([.sound])
+      }
+    }`;
+    const result = addForegroundForwarding(source);
+    expect(result).toContain('CarillonBridge.willPresent(notification, completionHandler: completion)');
+    expect(result).toContain('completion([.sound])');
+    expect(addForegroundForwarding(result)).toBe(result);
+  });
+});
+
+
+describe('notification service extension', () => {
+  it('embeds one extension and links its Swift product idempotently', () => {
+    const xcode = require('xcode');
+    const path = require('node:path');
+    const { addNotificationExtension, EXTENSION_NAME } = require('../extension');
+    const project = xcode.project(path.join(__dirname, '../../../example/ios/CarillonExample.xcodeproj/project.pbxproj'));
+    project.parseSync();
+    delete project.hash.project.objects.PBXTargetDependency;
+    delete project.hash.project.objects.PBXContainerItemProxy;
+    addNotificationExtension(project, 'dev.carillon.example');
+    const first = project.writeSync();
+    expect(first).toContain('dev.carillon.example.CarillonNotificationExtension');
+    expect(first).toContain('com.apple.product-type.app-extension');
+    expect(first).toContain('XCSwiftPackageProductDependency');
+    expect(first).toContain('NotificationService.swift');
+    expect(first).toContain('CarillonNotificationExtension.appex');
+    const targets = Object.values(project.pbxNativeTargetSection()).filter((target: unknown) => (target as { name?: string }).name === `"${EXTENSION_NAME}"`);
+    expect(targets).toHaveLength(1);
+    const objects = project.hash.project.objects;
+    const dependencies = project.getFirstTarget().firstTarget.dependencies;
+    expect(dependencies.some((reference: { value: string }) => objects.PBXTargetDependency[reference.value]?.target)).toBe(true);
+    expect(first).toContain('SDKROOT = iphoneos');
+    expect(first).toContain('PRODUCT_MODULE_NAME = CarillonNotificationService');
+    expect(first).not.toContain('path = undefined');
+    addNotificationExtension(project, 'dev.carillon.example');
+    expect(project.writeSync()).toBe(first);
   });
 });

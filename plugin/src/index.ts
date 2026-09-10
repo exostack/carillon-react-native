@@ -1,9 +1,11 @@
+import { withNotificationExtension } from './extension';
 import {
   AndroidConfig,
   withAndroidManifest,
   withAppBuildGradle,
   withAppDelegate,
   withEntitlementsPlist,
+  withMainActivity,
   withProjectBuildGradle,
   type ConfigPlugin,
 } from '@expo/config-plugins';
@@ -132,6 +134,36 @@ export function addCarillonForwarding(contents: string): string {
   return addImport('CarillonReactNative', addImport('UserNotifications', inserted));
 }
 
+/** Route presentation through the bridge once; preserve existing handling for other providers. */
+export function addForegroundForwarding(contents: string): string {
+  if (contents.includes('CarillonBridge.willPresent(')) return contents;
+  const existing = /func\s+userNotificationCenter\s*\([\s\S]*?willPresent\s+(\w+):\s*UNNotification\s*,\s*withCompletionHandler\s+(\w+):[^\{]+\{/.exec(contents);
+  if (existing) {
+    const offset = existing.index + existing[0].length;
+    const notification = existing[1]!;
+    const completion = existing[2]!;
+    return contents.slice(0, offset) + `
+    if ${notification}.request.content.userInfo["carillon"] != nil {
+      CarillonBridge.willPresent(${notification}, completionHandler: ${completion})
+      return
+    }
+` + contents.slice(offset);
+  }
+  const declaration = /class\s+AppDelegate\b[^\{]*\{/.exec(contents);
+  if (!declaration) throw new Error('Cannot find AppDelegate for Carillon foreground forwarding.');
+  const start = declaration.index + declaration[0].length;
+  const method = `
+  ${needsOverride(contents) ? 'override ' : ''}func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    CarillonBridge.willPresent(notification, completionHandler: completionHandler)
+  }
+`;
+  return addImport('CarillonReactNative', addImport('UserNotifications', contents.slice(0, start) + method + contents.slice(start)));
+}
+
 /** Adds an import after the last one, unless the file already has it. */
 export function addImport(module: string, contents: string): string {
   if (new RegExp(`^import ${module}$`, 'm').test(contents)) return contents;
@@ -232,6 +264,67 @@ export function applyGoogleServicesPlugin(contents: string): string {
   return `${contents.trimEnd()}\n\nif (file("google-services.json").exists()) {\n    apply plugin: "com.google.gms.google-services"\n}\n`;
 }
 
+/** Forward cold and warm opens without replacing existing activity callbacks. */
+export function addAndroidOpenForwarding(
+  contents: string,
+  language = "kt",
+): string {
+  if (language !== "kt") {
+    throw new Error(
+      "Carillon requires a Kotlin MainActivity for automatic open forwarding. Convert MainActivity to Kotlin or forward Carillon.didOpen(intent) manually.",
+    );
+  }
+  let result = contents;
+  for (const name of ["onCreate", "onNewIntent"] as const) {
+    const method = new RegExp(
+      `override\\s+fun\\s+${name}\\s*\\(\\s*(\\w+)\\s*:[^{]*?\\)[^{]*\\{`,
+    ).exec(result);
+    if (method) {
+      const start = method.index + method[0].length;
+      const end = closingBraceOf(result, start);
+      if (end === -1)
+        throw new Error(`Cannot find the end of MainActivity.${name}.`);
+      const body = result.slice(start, end);
+      if (/\bCarillon\.didOpen\s*\(/.test(body)) continue;
+      const call = new RegExp(`super\\.${name}\\s*\\([^)]*\\)`).exec(body);
+      if (!call)
+        throw new Error(
+          `MainActivity.${name} must call super.${name} before Carillon can forward notification opens.`,
+        );
+      const argument = name === "onCreate" ? "intent" : method[1]!;
+      const setIntent =
+        name === "onNewIntent" ? /\bsetIntent\s*\([^)]*\)/.exec(body) : null;
+      const after =
+        setIntent && setIntent.index > call.index ? setIntent : call;
+      const offset = start + after.index + after[0].length;
+      const set =
+        name === "onNewIntent" && !setIntent
+          ? `\n    setIntent(${argument})`
+          : "";
+      result = `${result.slice(0, offset)}${set}\n    Carillon.didOpen(${argument})${result.slice(offset)}`;
+    } else {
+      const declaration = /class\s+MainActivity\b[^\{]*\{/.exec(result);
+      if (!declaration)
+        throw new Error(
+          "Cannot find the Kotlin MainActivity class for Carillon open forwarding.",
+        );
+      const start = declaration.index + declaration[0].length;
+      const callback =
+        name === "onCreate"
+          ? "\n  override fun onCreate(savedInstanceState: android.os.Bundle?) {\n    super.onCreate(savedInstanceState)\n    Carillon.didOpen(intent)\n  }\n"
+          : "\n  override fun onNewIntent(intent: android.content.Intent) {\n    super.onNewIntent(intent)\n    setIntent(intent)\n    Carillon.didOpen(intent)\n  }\n";
+      result = `${result.slice(0, start)}${callback}${result.slice(start)}`;
+    }
+  }
+  if (!/^import .+$/m.test(result) && /^package .+$/m.test(result)) {
+    return result.replace(
+      /^(package .+)$/m,
+      "$1\n\nimport dev.carillon.sdk.Carillon",
+    );
+  }
+  return addImport("dev.carillon.sdk.Carillon", result);
+}
+
 const withCarillon: ConfigPlugin = (config) => {
   config = withEntitlementsPlist(config, (entitlements) => {
     entitlements.modResults = setApsEnvironment(entitlements.modResults);
@@ -240,11 +333,19 @@ const withCarillon: ConfigPlugin = (config) => {
   });
 
   config = withAppDelegate(config, (appDelegate) => {
-    appDelegate.modResults.contents = addCarillonForwarding(
+    appDelegate.modResults.contents = addForegroundForwarding(addCarillonForwarding(
       appDelegate.modResults.contents
-    );
+    ));
 
     return appDelegate;
+  });
+
+  config = withMainActivity(config, (activity) => {
+    activity.modResults.contents = addAndroidOpenForwarding(
+      activity.modResults.contents,
+      activity.modResults.language,
+    );
+    return activity;
   });
 
   config = withAndroidManifest(config, (manifest) => {
@@ -273,6 +374,8 @@ const withCarillon: ConfigPlugin = (config) => {
 
     return gradle;
   });
+
+  config = withNotificationExtension(config);
 
   return AndroidConfig.Permissions.withPermissions(config, [
     'android.permission.POST_NOTIFICATIONS',
