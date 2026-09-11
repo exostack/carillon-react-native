@@ -1,4 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   addCarillonForwarding,
   addForegroundForwarding,
@@ -6,8 +9,11 @@ import {
   addGoogleServicesClasspath,
   addImport,
   addMessagingService,
+  addNotificationCenterConformance,
   applyGoogleServicesPlugin,
+  installNotificationCenterDelegate,
   needsOverride,
+  resolveMessagingService,
   setApsEnvironment,
 } from '../index';
 
@@ -32,11 +38,83 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 }
 `;
 
-const expoAppDelegate = `import ExpoModulesCore
+/** The AppDelegate `expo prebuild` writes from the Expo SDK 55 template, verbatim. */
+export const expoAppDelegate = `internal import Expo
+import React
+import ReactAppDependencyProvider
 
-@UIApplicationMain
-public class AppDelegate: ExpoAppDelegate {
+@main
+class AppDelegate: ExpoAppDelegate {
+  var window: UIWindow?
+
+  var reactNativeDelegate: ExpoReactNativeFactoryDelegate?
+  var reactNativeFactory: RCTReactNativeFactory?
+
   public override func application(
+    _ application: UIApplication,
+    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+  ) -> Bool {
+    let delegate = ReactNativeDelegate()
+    let factory = ExpoReactNativeFactory(delegate: delegate)
+    delegate.dependencyProvider = RCTAppDependencyProvider()
+
+    reactNativeDelegate = delegate
+    reactNativeFactory = factory
+
+#if os(iOS) || os(tvOS)
+    window = UIWindow(frame: UIScreen.main.bounds)
+    factory.startReactNative(
+      withModuleName: "main",
+      in: window,
+      launchOptions: launchOptions)
+#endif
+
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  // Linking API
+  public override func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+  ) -> Bool {
+    return super.application(app, open: url, options: options) || RCTLinkingManager.application(app, open: url, options: options)
+  }
+
+  // Universal Links
+  public override func application(
+    _ application: UIApplication,
+    continue userActivity: NSUserActivity,
+    restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+  ) -> Bool {
+    let result = RCTLinkingManager.application(application, continue: userActivity, restorationHandler: restorationHandler)
+    return super.application(application, continue: userActivity, restorationHandler: restorationHandler) || result
+  }
+}
+
+class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {
+  // Extension point for config-plugins
+
+  override func sourceURL(for bridge: RCTBridge) -> URL? {
+    // needed to return the correct URL for expo-dev-client.
+    bridge.bundleURL ?? bundleURL()
+  }
+
+  override func bundleURL() -> URL? {
+#if DEBUG
+    return RCTBundleURLProvider.sharedSettings().jsBundleURL(forBundleRoot: ".expo/.virtual-metro-entry")
+#else
+    return Bundle.main.url(forResource: "main", withExtension: "jsbundle")
+#endif
+  }
+}
+`;
+
+const rctAppDelegate = `import React_RCTAppDelegate
+
+@main
+class AppDelegate: RCTAppDelegate {
+  override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
@@ -66,17 +144,18 @@ describe('addImport', () => {
 });
 
 describe('needsOverride', () => {
-  it('is true against a base class that already implements the callbacks', () => {
+  it('is true against ExpoAppDelegate, which implements the registration callbacks', () => {
     expect(needsOverride(expoAppDelegate)).toBe(true);
   });
 
-  it('is false against a bare UIResponder, which implements none of them', () => {
+  it('is false against RCTAppDelegate and a bare UIResponder, which implement none of them', () => {
+    expect(needsOverride(rctAppDelegate)).toBe(false);
     expect(needsOverride(bareAppDelegate)).toBe(false);
   });
 });
 
 describe('addCarillonForwarding', () => {
-  it('forwards the three callbacks and imports what they need', () => {
+  it('forwards the four callbacks and imports what they need', () => {
     const result = addCarillonForwarding(bareAppDelegate);
 
     expect(result).toContain('import CarillonReactNative');
@@ -84,6 +163,7 @@ describe('addCarillonForwarding', () => {
     expect(result).toContain('CarillonBridge.didRegister(token: deviceToken)');
     expect(result).toContain('CarillonBridge.didFailToRegister(error)');
     expect(result).toContain('CarillonBridge.didOpen(response)');
+    expect(result).toContain('CarillonBridge.willPresent(notification, completionHandler: completionHandler)');
   });
 
   it('leaves the existing body alone', () => {
@@ -92,38 +172,93 @@ describe('addCarillonForwarding', () => {
     );
   });
 
-  it('closes the response itself when there is no base class to hand it to', () => {
+  it('writes no override against a bare UIResponder', () => {
     const result = addCarillonForwarding(bareAppDelegate);
 
     expect(result).toContain('completionHandler()');
     expect(result).not.toContain('override func');
-    expect(result).not.toContain('super.userNotificationCenter');
+    expect(result).not.toContain('super.');
   });
 
-  it('overrides and calls super where a base class implements the callbacks', () => {
-    // Nobody's callback disappears: that is the whole reason the SDK asks for
-    // explicit forwarding instead of swizzling, and a plugin that wrote the
-    // forwarding without the chain would take away exactly what it protects.
+  it('overrides only the registration callbacks against ExpoAppDelegate', () => {
+    // ExpoAppDelegate implements the two registration callbacks and nothing of
+    // UNUserNotificationCenterDelegate, so the chain to super exists for those
+    // two alone; an `override` on the other two does not compile.
     const result = addCarillonForwarding(expoAppDelegate);
 
-    expect(result).toContain('override func application(');
+    expect(result.match(/override func application\(/g)).toHaveLength(2 + 3);
     expect(result).toContain(
       'super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)'
     );
-    expect(result).toContain('super.userNotificationCenter(center, didReceive: response');
-    expect(result).not.toContain('completionHandler()\n  }');
+    expect(result).toContain(
+      'super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)'
+    );
+    expect(result).not.toContain('override func userNotificationCenter');
+    expect(result).not.toContain('super.userNotificationCenter');
+    expect(result).toContain('CarillonBridge.didOpen(response)\n    completionHandler()');
+  });
+
+  it('writes no override against RCTAppDelegate, which implements none of the callbacks', () => {
+    const result = addCarillonForwarding(rctAppDelegate);
+
+    expect(result).not.toContain('override func application(\n    _ application: UIApplication,\n    didRegister');
+    expect(result).not.toContain('super.application(application, didRegister');
+    expect(result).not.toContain('override func userNotificationCenter');
+  });
+
+  it('makes the AppDelegate the notification-center delegate at the top of didFinishLaunching', () => {
+    const result = addCarillonForwarding(expoAppDelegate);
+
+    expect(result).toContain(
+      ') -> Bool {\n    UNUserNotificationCenter.current().delegate = self\n    let delegate = ReactNativeDelegate()'
+    );
+    expect(result).toContain('\n}\n\nextension AppDelegate: UNUserNotificationCenterDelegate {}\n\nclass ReactNativeDelegate');
   });
 
   it('runs twice over its own output without writing anything twice', () => {
-    const once = addCarillonForwarding(bareAppDelegate);
+    for (const source of [bareAppDelegate, expoAppDelegate, rctAppDelegate]) {
+      const once = addCarillonForwarding(source);
 
-    expect(addCarillonForwarding(once)).toBe(once);
+      expect(addCarillonForwarding(once)).toBe(once);
+    }
   });
 
-  it('leaves a file it cannot recognise untouched', () => {
-    expect(addCarillonForwarding('// no AppDelegate here\n')).toBe(
-      '// no AppDelegate here\n'
-    );
+  it('writes only the registration callbacks when the delegate belongs to another library', () => {
+    const result = addCarillonForwarding(expoAppDelegate, { installNotificationCenterDelegate: false });
+
+    expect(result).toContain('CarillonBridge.didRegister(token: deviceToken)');
+    expect(result).not.toContain('userNotificationCenter');
+    expect(result).not.toContain('UNUserNotificationCenter.current().delegate');
+    expect(result).not.toContain('UNUserNotificationCenterDelegate');
+    expect(addCarillonForwarding(result, { installNotificationCenterDelegate: false })).toBe(result);
+  });
+
+  it('refuses a file it cannot recognise', () => {
+    expect(() => addCarillonForwarding('// no AppDelegate here\n')).toThrow('AppDelegate');
+  });
+});
+
+describe('installNotificationCenterDelegate', () => {
+  it('writes didFinishLaunching when the file has none, chaining to a base class that has it', () => {
+    const result = installNotificationCenterDelegate('class AppDelegate: ExpoAppDelegate {\n}\n');
+
+    expect(result).toContain('override func application(');
+    expect(result).toContain('UNUserNotificationCenter.current().delegate = self\n    return super.application(application, didFinishLaunchingWithOptions: launchOptions)');
+  });
+
+  it('returns true itself when there is no base class to chain to', () => {
+    const result = installNotificationCenterDelegate('class AppDelegate: UIResponder, UIApplicationDelegate {\n}\n');
+
+    expect(result).not.toContain('override');
+    expect(result).toContain('UNUserNotificationCenter.current().delegate = self\n    return true');
+  });
+});
+
+describe('addNotificationCenterConformance', () => {
+  it('leaves a class that already conforms alone', () => {
+    const source = 'class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {\n}\n';
+
+    expect(addNotificationCenterConformance(source)).toBe(source);
   });
 });
 
@@ -169,6 +304,80 @@ describe('addMessagingService', () => {
     const once = addMessagingService({ $: { 'android:name': '.MainApplication' } });
 
     expect(addMessagingService(once)).toBe(once);
+  });
+});
+
+describe('resolveMessagingService', () => {
+  const messagingManifest = (service: string) => `<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <service android:name="${service}" android:exported="false">
+      <intent-filter>
+        <action android:name="com.google.firebase.MESSAGING_EVENT" />
+      </intent-filter>
+    </service>
+  </application>
+</manifest>`;
+  const plainManifest = '<manifest><application /></manifest>';
+
+  const projectWith = (packages: Record<string, string | null>) => {
+    const root = mkdtempSync(join(tmpdir(), 'carillon-plugin-'));
+    for (const [name, manifest] of Object.entries(packages)) {
+      const folder = join(root, 'node_modules', name);
+      mkdirSync(folder, { recursive: true });
+      writeFileSync(join(folder, 'package.json'), '{}');
+      if (manifest !== null) {
+        mkdirSync(join(folder, 'android', 'src', 'main'), { recursive: true });
+        writeFileSync(join(folder, 'android', 'src', 'main', 'AndroidManifest.xml'), manifest);
+      }
+    }
+    return root;
+  };
+
+  it('declares the service in auto mode when no installed package declares one', () => {
+    const root = projectWith({ 'js-only-library': null, 'native-library': plainManifest });
+
+    expect(resolveMessagingService('auto', root)).toEqual({ declare: true, conflicts: [] });
+  });
+
+  it('steps aside in auto mode when an installed package declares its own service', () => {
+    // A library's service only appears at manifest merge, after the plugin has
+    // run, so the app manifest cannot reveal it; the installed manifests can.
+    const root = projectWith({ '@acme/push-library': messagingManifest('com.acme.PushService') });
+
+    expect(resolveMessagingService('auto', root)).toEqual({
+      declare: false,
+      conflicts: ['@acme/push-library'],
+    });
+  });
+
+  it('finds a package hoisted to a parent node_modules', () => {
+    const root = projectWith({ 'hoisted-library': messagingManifest('com.example.Messaging') });
+
+    expect(resolveMessagingService('auto', join(root, 'apps', 'mobile')).declare).toBe(false);
+  });
+
+  it('does not count a library that declares the Carillon service itself', () => {
+    const root = projectWith({
+      'carillon-wrapper': messagingManifest('dev.carillon.sdk.CarillonMessagingService'),
+    });
+
+    expect(resolveMessagingService('auto', root).declare).toBe(true);
+  });
+
+  it('skips package manager metadata folders', () => {
+    const root = projectWith({ '.store': messagingManifest('com.example.Hidden') });
+
+    expect(resolveMessagingService('auto', root).declare).toBe(true);
+  });
+
+  it('declares regardless in carillon mode and never in external mode', () => {
+    const root = projectWith({ 'push-library': messagingManifest('com.example.Push') });
+
+    expect(resolveMessagingService('carillon', root)).toEqual({ declare: true, conflicts: [] });
+    expect(resolveMessagingService('external', projectWith({}))).toEqual({
+      declare: false,
+      conflicts: [],
+    });
   });
 });
 
@@ -313,16 +522,41 @@ describe('foreground forwarding', () => {
 
 
 describe('notification service extension', () => {
-  it('embeds one extension and links its Swift product idempotently', () => {
-    const xcode = require('xcode');
-    const path = require('node:path');
-    const { addNotificationExtension, EXTENSION_NAME } = require('../extension');
+  const xcode = require('xcode');
+  const path = require('node:path');
+  const { addNotificationExtension, EXTENSION_NAME, swiftPackageSource } = require('../extension');
+  const exampleProject = () => {
     const project = xcode.project(path.join(__dirname, '../../../example/ios/CarillonExample.xcodeproj/project.pbxproj'));
     project.parseSync();
     delete project.hash.project.objects.PBXTargetDependency;
     delete project.hash.project.objects.PBXContainerItemProxy;
-    addNotificationExtension(project, 'dev.carillon.example');
+    return project;
+  };
+
+  it('resolves the Swift package from the environment as the podspec does', () => {
+    expect(swiftPackageSource({})).toEqual({ kind: 'remote', minimumVersion: '0.2.0' });
+    expect(swiftPackageSource({ CARILLON_SWIFT_PATH: '/checkouts/carillon-swift' })).toEqual({
+      kind: 'local',
+      path: '/checkouts/carillon-swift',
+    });
+  });
+
+  it('references a local checkout relative to the ios directory', () => {
+    const project = exampleProject();
+    const checkout = path.resolve(__dirname, '../../../../carillon-swift');
+    addNotificationExtension(project, 'dev.carillon.example', { kind: 'local', path: checkout });
+    const written = project.writeSync();
+    expect(written).toContain('isa = XCLocalSwiftPackageReference');
+    expect(written).toContain('relativePath = "../../../carillon-swift"');
+    expect(written).not.toContain('carillon-swift.git');
+  });
+
+  it('embeds one extension and links its Swift product idempotently', () => {
+    const project = exampleProject();
+    addNotificationExtension(project, 'dev.carillon.example', { kind: 'remote', minimumVersion: '0.2.0' });
     const first = project.writeSync();
+    expect(first).toContain('isa = XCRemoteSwiftPackageReference');
+    expect(first).toContain('minimumVersion = 0.2.0');
     expect(first).toContain('dev.carillon.example.CarillonNotificationExtension');
     expect(first).toContain('com.apple.product-type.app-extension');
     expect(first).toContain('XCSwiftPackageProductDependency');
@@ -336,7 +570,7 @@ describe('notification service extension', () => {
     expect(first).toContain('SDKROOT = iphoneos');
     expect(first).toContain('PRODUCT_MODULE_NAME = CarillonNotificationService');
     expect(first).not.toContain('path = undefined');
-    addNotificationExtension(project, 'dev.carillon.example');
+    addNotificationExtension(project, 'dev.carillon.example', { kind: 'remote', minimumVersion: '0.2.0' });
     expect(project.writeSync()).toBe(first);
   });
 });

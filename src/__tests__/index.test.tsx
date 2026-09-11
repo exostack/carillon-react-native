@@ -31,6 +31,12 @@ const mockNative = {
   startObservingDeviceId: jest.fn(() => { mockNative.deviceListeners.forEach((listener) => listener({deviceId: 'first'})); }),
   configure: jest.fn(),
   requestPermission: jest.fn(async () => 'allowed'),
+  getPermission: jest.fn(async () => 'undetermined'),
+  canRequestPermission: jest.fn(async () => true),
+  openNotificationSettings: jest.fn(),
+  didOpen: jest.fn(),
+  didReceive: jest.fn(),
+  didRotateToken: jest.fn(),
   identify: jest.fn(),
   clearIdentity: jest.fn(),
   setTags: jest.fn(),
@@ -127,6 +133,39 @@ describe('requestPermission', () => {
 
     expect(mockNative.configure).toHaveBeenCalled();
     expect(mockNative.requestPermission).not.toHaveBeenCalled();
+  });
+});
+
+describe('permission state', () => {
+  it('reads the permission without prompting', async () => {
+    await expect(Carillon.getPermission()).resolves.toBe('undetermined');
+    expect(mockNative.requestPermission).not.toHaveBeenCalled();
+  });
+
+  it('asks the natives whether the prompt would show, and opens settings', async () => {
+    mockNative.canRequestPermission.mockResolvedValueOnce(false);
+
+    await expect(Carillon.canRequestPermission()).resolves.toBe(false);
+
+    Carillon.openNotificationSettings();
+
+    expect(mockNative.openNotificationSettings).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('forwarding from another notification library', () => {
+  it('hands payloads and tokens to the natives unchanged', () => {
+    // Nothing is normalised here: iOS wants the userInfo as it arrived, and the
+    // Android module stringifies values itself, the way FCM would have.
+    const payload = { carillon: { delivery_id: anOpen.deliveryId }, order_id: 42 };
+
+    Carillon.didOpen(payload);
+    Carillon.didReceive(payload);
+    Carillon.didRotateToken('fcm-token');
+
+    expect(mockNative.didOpen).toHaveBeenCalledWith(payload);
+    expect(mockNative.didReceive).toHaveBeenCalledWith(payload);
+    expect(mockNative.didRotateToken).toHaveBeenCalledWith('fcm-token');
   });
 });
 

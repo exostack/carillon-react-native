@@ -1,9 +1,25 @@
 import { withXcodeProject, type ConfigPlugin } from '@expo/config-plugins';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 
 type Project = Parameters<Parameters<typeof withXcodeProject>[1]>[0]['modResults'];
 export const EXTENSION_NAME = 'CarillonNotificationExtension';
+export const SWIFT_PACKAGE_VERSION = '0.2.0';
+
+/**
+ * Where the extension's Swift package comes from: the published repository,
+ * or a checkout named by `CARILLON_SWIFT_PATH`, the same variable the podspec
+ * honours for the app target.
+ */
+export type SwiftPackageSource =
+  | { kind: 'remote'; minimumVersion: string }
+  | { kind: 'local'; path: string };
+
+export function swiftPackageSource(env: NodeJS.ProcessEnv = process.env): SwiftPackageSource {
+  const local = env.CARILLON_SWIFT_PATH;
+
+  return local ? { kind: 'local', path: resolve(local) } : { kind: 'remote', minimumVersion: SWIFT_PACKAGE_VERSION };
+}
 export const notificationService = `import UserNotifications
 import CarillonNotificationExtension
 
@@ -36,7 +52,11 @@ export const extensionPlist = `<?xml version="1.0" encoding="UTF-8"?>
 </dict></dict></plist>
 `;
 
-export function addNotificationExtension(project: Project, bundleId: string): void {
+export function addNotificationExtension(
+  project: Project,
+  bundleId: string,
+  swiftPackage: SwiftPackageSource = swiftPackageSource()
+): void {
   const objects = project.hash.project.objects;
   objects.PBXTargetDependency ??= {};
   objects.PBXContainerItemProxy ??= {};
@@ -80,13 +100,21 @@ export function addNotificationExtension(project: Project, bundleId: string): vo
   const packageId = project.generateUuid();
   const productId = project.generateUuid();
   const buildId = project.generateUuid();
-  objects.XCRemoteSwiftPackageReference ??= {};
   objects.XCSwiftPackageProductDependency ??= {};
-  objects.XCRemoteSwiftPackageReference[packageId] = {
-    isa: 'XCRemoteSwiftPackageReference',
-    repositoryURL: '"https://github.com/exostack/carillon-swift.git"',
-    requirement: { kind: 'upToNextMajorVersion', minimumVersion: '0.2.0' },
-  };
+  if (swiftPackage.kind === 'local') {
+    objects.XCLocalSwiftPackageReference ??= {};
+    objects.XCLocalSwiftPackageReference[packageId] = {
+      isa: 'XCLocalSwiftPackageReference',
+      relativePath: `"${relative(dirname(dirname(project.filepath)), swiftPackage.path)}"`,
+    };
+  } else {
+    objects.XCRemoteSwiftPackageReference ??= {};
+    objects.XCRemoteSwiftPackageReference[packageId] = {
+      isa: 'XCRemoteSwiftPackageReference',
+      repositoryURL: '"https://github.com/exostack/carillon-swift.git"',
+      requirement: { kind: 'upToNextMajorVersion', minimumVersion: swiftPackage.minimumVersion },
+    };
+  }
   objects.XCSwiftPackageProductDependency[productId] = {
     isa: 'XCSwiftPackageProductDependency', package: packageId, productName: EXTENSION_NAME,
   };

@@ -16,6 +16,19 @@ export interface Spec extends TurboModule {
  */
   requestPermission(): Promise<string>;
 
+  /** Reads the permission without prompting. Same words as requestPermission. */
+  getPermission(): Promise<string>;
+  canRequestPermission(): Promise<boolean>;
+  openNotificationSettings(): void;
+
+  /**
+ * Forwards from an app whose native callbacks belong to another library.
+ * didReceive and didRotateToken do nothing on iOS.
+ */
+  didOpen(payload: CodegenTypes.UnsafeObject): void;
+  didReceive(payload: CodegenTypes.UnsafeObject): void;
+  didRotateToken(token: string): void;
+
   identify(externalId: string): void;
   clearIdentity(): void;
   setTags(tags: CodegenTypes.UnsafeObject): void;

@@ -1,6 +1,7 @@
 import { withNotificationExtension } from './extension';
 import {
   AndroidConfig,
+  WarningAggregator,
   withAndroidManifest,
   withAppBuildGradle,
   withAppDelegate,
@@ -9,17 +10,38 @@ import {
   withProjectBuildGradle,
   type ConfigPlugin,
 } from '@expo/config-plugins';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 /**
  * The Expo config plugin.
  *
  * It does by hand what a bare install asks a developer to do by hand, and
- * nothing beyond that: the push entitlement and the two forwarded delegate
- * callbacks on iOS, the messaging service and the google-services wiring on
- * Android. Every transform below is a pure function of the file it edits, which
- * is what lets them be tested without an Expo runtime, and every one of them is
- * idempotent, because `expo prebuild` runs them again over their own output.
+ * nothing beyond that: the push entitlement, the notification-center delegate
+ * and the forwarded callbacks on iOS, the messaging service and the
+ * google-services wiring on Android. Every transform below is a pure function
+ * of the file it edits, which is what lets them be tested without an Expo
+ * runtime, and every one of them is idempotent, because `expo prebuild` runs
+ * them again over their own output.
  */
+
+export type MessagingServiceMode = 'auto' | 'carillon' | 'external';
+
+export type CarillonPluginProps = {
+  /**
+   * Whether the plugin makes the AppDelegate the notification-center delegate
+   * and inserts the `userNotificationCenter` callbacks. Set to `false` when
+   * another notification library owns the delegate, and forward opens from
+   * JavaScript instead. Defaults to `true`.
+   */
+  installNotificationCenterDelegate?: boolean;
+  /**
+   * Whether to declare the SDK's Firebase messaging service on Android.
+   * `auto` declares it unless a package that ships its own is installed;
+   * `carillon` always declares it; `external` never does. Defaults to `auto`.
+   */
+  messagingService?: MessagingServiceMode;
+};
 
 /**
  * The version of the Google Services Gradle plugin the Android SDK's own
@@ -32,32 +54,42 @@ export const GOOGLE_SERVICES_VERSION = '4.4.4';
 const MESSAGING_SERVICE = 'dev.carillon.sdk.CarillonMessagingService';
 const MESSAGING_EVENT = 'com.google.firebase.MESSAGING_EVENT';
 
+const LIBRARY_MANIFEST = join('android', 'src', 'main', 'AndroidManifest.xml');
+
+const DELEGATE_INSTALL = 'UNUserNotificationCenter.current().delegate = self';
+
+function baseClass(contents: string): string | undefined {
+  return /class\s+AppDelegate\s*:\s*([A-Za-z0-9_]+)/.exec(contents)?.[1];
+}
+
 /**
- * Whether the forwarding methods have to be marked `override`.
+ * Whether the two registration callbacks have to be marked `override`.
  *
- * `ExpoAppDelegate` and `RCTAppDelegate` implement these callbacks themselves,
- * so a method that does not say `override` fails to compile against them. A
- * bare `class AppDelegate: UIResponder, UIApplicationDelegate` inherits neither
- * — `UIResponder` is a superclass that knows nothing about push — and there
- * `override` is the error instead. The declaration is the only place that says
- * which of the two this file is.
+ * Only `ExpoAppDelegate` implements them itself, so a method that does not say
+ * `override` fails to compile against it. `RCTAppDelegate` and a bare
+ * `UIResponder` implement neither, and there `override` is the error instead.
+ * Neither base class implements any `UNUserNotificationCenterDelegate` method,
+ * so those are never overrides.
  */
 export function needsOverride(contents: string): boolean {
-  const declaration = /class\s+AppDelegate\s*:\s*([A-Za-z0-9_]+)/.exec(contents);
-  const base = declaration?.[1];
+  return baseClass(contents) === 'ExpoAppDelegate';
+}
+
+function implementsDidFinishLaunching(contents: string): boolean {
+  const base = baseClass(contents);
 
   return base === 'ExpoAppDelegate' || base === 'RCTAppDelegate';
 }
 
 /**
- * The three forwarded callbacks, written for the AppDelegate this app has.
+ * The two registration callbacks, written for the AppDelegate this app has.
  *
  * Against a base class that already implements them, each one ends by calling
- * `super`: whatever else the app has installed — Expo's own notification
- * handling, another SDK — keeps working, because the point of forwarding
- * explicitly rather than swizzling is that nobody's callback disappears.
+ * `super`: whatever else the app has installed keeps working, because the point
+ * of forwarding explicitly rather than swizzling is that nobody's callback
+ * disappears.
  */
-function forwardingMethods(override: boolean): string {
+function registrationMethods(override: boolean): string {
   const declare = (signature: string) =>
     override ? `  override func ${signature}` : `  func ${signature}`;
 
@@ -69,9 +101,6 @@ function forwardingMethods(override: boolean): string {
     '    _ application: UIApplication,',
     '    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data',
     '  ) {',
-    "    // The `Data` goes over as it arrived. Hex-encoding is the SDK's job,",
-    '    // which is what makes sending `deviceToken.description` — the classic',
-    '    // mistake — something this line cannot express.',
     '    CarillonBridge.didRegister(token: deviceToken)' +
       chain(
         'application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)'
@@ -88,50 +117,61 @@ function forwardingMethods(override: boolean): string {
       ),
     '  }',
     '',
-    declare('userNotificationCenter('),
-    '    _ center: UNUserNotificationCenter,',
-    '    didReceive response: UNNotificationResponse,',
-    '    withCompletionHandler completionHandler: @escaping () -> Void',
-    '  ) {',
-    '    // Forward every response. A notification that is not ours carries no',
-    '    // delivery id and is ignored, so this file does not have to work out',
-    '    // which is which.',
-    '    CarillonBridge.didOpen(response)',
-    override
-      ? '    super.userNotificationCenter(center, didReceive: response, withCompletionHandler: completionHandler)'
-      : '    completionHandler()',
-    '  }',
-    '',
   ].join('\n');
 }
 
-/**
- * Inserts the forwarding callbacks into the AppDelegate class body.
- *
- * The SDK swizzles nothing — that is a decision, not an omission — so these
- * lines have to exist somewhere. Written here rather than expected of the
- * customer is the whole difference between the managed workflow and the bare
- * one.
- */
-export function addCarillonForwarding(contents: string): string {
-  if (contents.includes('CarillonBridge.didRegister(')) return contents;
+const openMethod = `
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    CarillonBridge.didOpen(response)
+    completionHandler()
+  }
+`;
 
+const foregroundMethod = `
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    CarillonBridge.willPresent(notification, completionHandler: completionHandler)
+  }
+`;
+
+/** Inserts methods before the closing brace of the AppDelegate class. */
+function insertIntoAppDelegate(contents: string, methods: string): string {
   const declaration = /class\s+AppDelegate\b[^{]*\{/.exec(contents);
 
-  if (!declaration || declaration.index === undefined) return contents;
+  if (!declaration) throw new Error('Cannot find the AppDelegate class for Carillon forwarding.');
 
   const bodyStart = declaration.index + declaration[0].length;
   const bodyEnd = closingBraceOf(contents, bodyStart);
 
-  if (bodyEnd === -1) return contents;
+  if (bodyEnd === -1) throw new Error('Cannot find the end of the AppDelegate class.');
 
-  const inserted = [
-    contents.slice(0, bodyEnd),
-    forwardingMethods(needsOverride(contents)),
-    contents.slice(bodyEnd),
-  ].join('');
+  const inserted = [contents.slice(0, bodyEnd), methods, contents.slice(bodyEnd)].join('');
 
   return addImport('CarillonReactNative', addImport('UserNotifications', inserted));
+}
+
+/** Forwards APNs registration success and failure. */
+export function addRegistrationForwarding(contents: string): string {
+  if (contents.includes('CarillonBridge.didRegister(')) return contents;
+
+  return insertIntoAppDelegate(contents, registrationMethods(needsOverride(contents)));
+}
+
+/**
+ * Forwards notification taps. Every response is forwarded: a notification that
+ * is not Carillon's carries no delivery id and is ignored by the SDK.
+ */
+export function addOpenForwarding(contents: string): string {
+  if (contents.includes('CarillonBridge.didOpen(')) return contents;
+
+  return insertIntoAppDelegate(contents, openMethod);
 }
 
 /** Route presentation through the bridge once; preserve existing handling for other providers. */
@@ -149,19 +189,77 @@ export function addForegroundForwarding(contents: string): string {
     }
 ` + contents.slice(offset);
   }
-  const declaration = /class\s+AppDelegate\b[^\{]*\{/.exec(contents);
-  if (!declaration) throw new Error('Cannot find AppDelegate for Carillon foreground forwarding.');
-  const start = declaration.index + declaration[0].length;
+
+  return insertIntoAppDelegate(contents, foregroundMethod);
+}
+
+/** Declares the conformance the two `userNotificationCenter` methods satisfy. */
+export function addNotificationCenterConformance(contents: string): string {
+  if (contents.includes('UNUserNotificationCenterDelegate')) return contents;
+
+  const declaration = /class\s+AppDelegate\b[^{]*\{/.exec(contents);
+
+  if (!declaration) throw new Error('Cannot find the AppDelegate class for Carillon forwarding.');
+
+  const bodyEnd = closingBraceOf(contents, declaration.index + declaration[0].length);
+
+  if (bodyEnd === -1) throw new Error('Cannot find the end of the AppDelegate class.');
+
+  const after = bodyEnd + 1;
+
+  return `${contents.slice(0, after)}\n\nextension AppDelegate: UNUserNotificationCenterDelegate {}${contents.slice(after)}`;
+}
+
+/**
+ * Makes the AppDelegate the notification-center delegate at the top of
+ * `didFinishLaunchingWithOptions`, so that a launch from a tap has somewhere to
+ * deliver its open to. Writes the method when the file has none.
+ */
+export function installNotificationCenterDelegate(contents: string): string {
+  if (contents.includes(DELEGATE_INSTALL)) return contents;
+
+  const existing = /func\s+application\s*\(\s*_\s+\w+\s*:\s*UIApplication\s*,\s*didFinishLaunchingWithOptions[^{]*\{/.exec(contents);
+
+  if (existing) {
+    const offset = existing.index + existing[0].length;
+
+    return addImport('UserNotifications', `${contents.slice(0, offset)}\n    ${DELEGATE_INSTALL}${contents.slice(offset)}`);
+  }
+
+  const override = implementsDidFinishLaunching(contents);
   const method = `
-  ${needsOverride(contents) ? 'override ' : ''}func userNotificationCenter(
-    _ center: UNUserNotificationCenter,
-    willPresent notification: UNNotification,
-    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
-  ) {
-    CarillonBridge.willPresent(notification, completionHandler: completionHandler)
+  ${override ? 'override ' : ''}func application(
+    _ application: UIApplication,
+    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+  ) -> Bool {
+    ${DELEGATE_INSTALL}
+    return ${override ? 'super.application(application, didFinishLaunchingWithOptions: launchOptions)' : 'true'}
   }
 `;
-  return addImport('CarillonReactNative', addImport('UserNotifications', contents.slice(0, start) + method + contents.slice(start)));
+
+  return insertIntoAppDelegate(contents, method);
+}
+
+/**
+ * The whole AppDelegate transform.
+ *
+ * The SDK swizzles nothing — that is a decision, not an omission — so these
+ * lines have to exist somewhere. Written here rather than expected of the
+ * customer is the whole difference between the managed workflow and the bare
+ * one. Without the delegate, only the registration callbacks are written: the
+ * app forwards opens from JavaScript through the library that owns it.
+ */
+export function addCarillonForwarding(
+  contents: string,
+  options: { installNotificationCenterDelegate?: boolean } = {}
+): string {
+  const registered = addRegistrationForwarding(contents);
+
+  if (options.installNotificationCenterDelegate === false) return registered;
+
+  return installNotificationCenterDelegate(
+    addNotificationCenterConformance(addForegroundForwarding(addOpenForwarding(registered)))
+  );
 }
 
 /** Adds an import after the last one, unless the file already has it. */
@@ -209,13 +307,66 @@ export function setApsEnvironment<T extends object>(
   return { ...entitlements, 'aps-environment': 'development' };
 }
 
+function packagesIn(nodeModules: string): string[] {
+  if (!existsSync(nodeModules)) return [];
+
+  return readdirSync(nodeModules).flatMap((name) => {
+    if (name.startsWith('.')) return [];
+    if (!name.startsWith('@')) return [name];
+
+    const scope = join(nodeModules, name);
+
+    return existsSync(scope) ? readdirSync(scope).map((scoped) => `${name}/${scoped}`) : [];
+  });
+}
+
+function declaresMessagingService(packageRoot: string): boolean {
+  const manifest = join(packageRoot, LIBRARY_MANIFEST);
+
+  if (!existsSync(manifest)) return false;
+
+  const contents = readFileSync(manifest, 'utf8');
+
+  return contents.includes(MESSAGING_EVENT) && !contents.includes(MESSAGING_SERVICE);
+}
+
+/** Installed packages whose Android manifest declares a Firebase messaging service. */
+export function installedMessagingServicePackages(projectRoot: string): string[] {
+  const found = new Set<string>();
+
+  for (let directory = projectRoot; ; directory = dirname(directory)) {
+    const nodeModules = join(directory, 'node_modules');
+
+    for (const name of packagesIn(nodeModules)) {
+      if (declaresMessagingService(join(nodeModules, name))) found.add(name);
+    }
+
+    if (dirname(directory) === directory) return [...found].sort();
+  }
+}
+
 /**
- * Declares the SDK's `FirebaseMessagingService`, unless the app already has one.
+ * Whether the SDK's service is declared, and which packages stand in its way.
  *
- * Firebase dispatches to a single service per application, so a second
- * declaration means one of them silently never runs. An app that brings its own
- * keeps it and forwards two calls instead, exactly as the Android SDK
- * documents.
+ * The app manifest alone cannot answer this: a library's service arrives at
+ * manifest merge, after the plugin has run, and two services mean one of them
+ * silently never runs.
+ */
+export function resolveMessagingService(
+  mode: MessagingServiceMode,
+  projectRoot: string
+): { declare: boolean; conflicts: string[] } {
+  if (mode === 'carillon') return { declare: true, conflicts: [] };
+  if (mode === 'external') return { declare: false, conflicts: [] };
+
+  const conflicts = installedMessagingServicePackages(projectRoot);
+
+  return { declare: conflicts.length === 0, conflicts };
+}
+
+/**
+ * Declares the SDK's `FirebaseMessagingService`, unless the app manifest
+ * already has one.
  */
 export function addMessagingService(
   application: AndroidConfig.Manifest.ManifestApplication
@@ -325,7 +476,10 @@ export function addAndroidOpenForwarding(
   return addImport("dev.carillon.sdk.Carillon", result);
 }
 
-const withCarillon: ConfigPlugin = (config) => {
+const withCarillon: ConfigPlugin<CarillonPluginProps | void> = (config, props) => {
+  const installDelegate = props?.installNotificationCenterDelegate ?? true;
+  const messagingService = props?.messagingService ?? 'auto';
+
   config = withEntitlementsPlist(config, (entitlements) => {
     entitlements.modResults = setApsEnvironment(entitlements.modResults);
 
@@ -333,9 +487,9 @@ const withCarillon: ConfigPlugin = (config) => {
   });
 
   config = withAppDelegate(config, (appDelegate) => {
-    appDelegate.modResults.contents = addForegroundForwarding(addCarillonForwarding(
-      appDelegate.modResults.contents
-    ));
+    appDelegate.modResults.contents = addCarillonForwarding(appDelegate.modResults.contents, {
+      installNotificationCenterDelegate: installDelegate,
+    });
 
     return appDelegate;
   });
@@ -349,12 +503,25 @@ const withCarillon: ConfigPlugin = (config) => {
   });
 
   config = withAndroidManifest(config, (manifest) => {
+    const { declare, conflicts } = resolveMessagingService(
+      messagingService,
+      manifest.modRequest.projectRoot
+    );
+
+    if (conflicts.length > 0) {
+      WarningAggregator.addWarningAndroid(
+        'carillon',
+        `${conflicts.join(', ')} declares its own Firebase messaging service, so the Carillon service is not declared. Forward token rotation to Carillon.didRotateToken and received messages to Carillon.didReceive from that library, or set messagingService: 'carillon' to declare it anyway.`
+      );
+    }
+
+    if (!declare) return manifest;
+
     const application = AndroidConfig.Manifest.getMainApplicationOrThrow(
       manifest.modResults
     );
-    const updated = addMessagingService(application);
 
-    Object.assign(application, updated);
+    Object.assign(application, addMessagingService(application));
 
     return manifest;
   });

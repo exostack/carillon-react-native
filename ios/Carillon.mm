@@ -29,6 +29,41 @@
   }];
 }
 
+- (void)getPermission:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+  [CarillonBridge getPermission:^(NSString *permission) {
+    resolve(permission);
+  }];
+}
+
+- (void)canRequestPermission:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+  [CarillonBridge canRequestPermission:^(BOOL can) {
+    resolve(@(can));
+  }];
+}
+
+- (void)openNotificationSettings
+{
+  [CarillonBridge openNotificationSettings];
+}
+
+- (void)didOpen:(NSDictionary *)payload
+{
+  [CarillonBridge didOpenWithUserInfo:payload];
+}
+
+- (void)didReceive:(NSDictionary *)payload
+{
+  // Foreground presentation is decided synchronously in the notification-center
+  // delegate; a payload forwarded afterwards has nothing left to decide.
+}
+
+- (void)didRotateToken:(NSString *)token
+{
+  // APNs tokens reach the SDK through didRegister, never through JavaScript.
+}
+
 - (void)identify:(NSString *)externalId
 {
   [CarillonBridge identify:externalId];

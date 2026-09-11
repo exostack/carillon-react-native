@@ -114,6 +114,52 @@ export async function requestPermission(): Promise<PushPermission> {
 }
 
 /**
+ * Reads the current OS permission without showing a prompt and syncs it to the server.
+ */
+export async function getPermission(): Promise<PushPermission> {
+  return (await NativeCarillon.getPermission()) as PushPermission;
+}
+
+/**
+ * Whether requestPermission would show the system prompt. When false, openNotificationSettings
+ * is the only way for the person to change their answer.
+ */
+export function canRequestPermission(): Promise<boolean> {
+  return NativeCarillon.canRequestPermission();
+}
+
+/**
+ * Opens the app's notification settings screen.
+ */
+export function openNotificationSettings(): void {
+  NativeCarillon.openNotificationSettings();
+}
+
+/**
+ * Forwards a tapped notification's payload when another library owns the native callbacks.
+ * Payloads without a Carillon delivery id are ignored.
+ */
+export function didOpen(payload: Record<string, unknown>): void {
+  NativeCarillon.didOpen(payload);
+}
+
+/**
+ * Forwards a received message's data when another library owns the Android messaging service.
+ * Does nothing on iOS, where presentation is decided in the notification-center delegate.
+ */
+export function didReceive(payload: Record<string, unknown>): void {
+  NativeCarillon.didReceive(payload);
+}
+
+/**
+ * Forwards a rotated FCM token when another library owns the Android messaging service.
+ * Does nothing on iOS, where the token arrives through the app delegate.
+ */
+export function didRotateToken(token: string): void {
+  NativeCarillon.didRotateToken(token);
+}
+
+/**
  * Sets the external user id. Pass null to clear it without opting out.
  */
 export function identify(externalId: string | null): void {
@@ -185,6 +231,9 @@ export async function getDeviceId(): Promise<string | null> {
   return typeof info.device_id === 'string' ? info.device_id : null;
 }
 
+/**
+ * Subscribes to device id changes. A known id is replayed to a new subscriber.
+ */
 export function onDeviceIdChanged(handler: (id: string) => void): () => void {
   const subscription = NativeCarillon.onDeviceIdChanged((event) => {
     const payload = event as Record<string, unknown>;
@@ -201,6 +250,12 @@ export async function debugInfo(): Promise<DebugInfo> {
 const Carillon = {
   configure,
   requestPermission,
+  getPermission,
+  canRequestPermission,
+  openNotificationSettings,
+  didOpen,
+  didReceive,
+  didRotateToken,
   identify,
   setTags,
   optIn,

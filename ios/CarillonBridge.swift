@@ -24,6 +24,21 @@ public final class CarillonBridge: NSObject {
   }
 
   @objc
+  public static func getPermission(_ completion: @escaping (String) -> Void) {
+    Task { completion(await Carillon.getPermission().rawValue) }
+  }
+
+  @objc
+  public static func canRequestPermission(_ completion: @escaping (Bool) -> Void) {
+    Task { completion(await Carillon.canRequestPermission()) }
+  }
+
+  @objc
+  public static func openNotificationSettings() {
+    Carillon.openNotificationSettings()
+  }
+
+  @objc
   public static func identify(_ externalId: String) {
     Carillon.identify(externalId)
   }
@@ -74,9 +89,8 @@ public final class CarillonBridge: NSObject {
         "deliveryId": opened.deliveryId,
         "openedAt": instantFormatter.string(from: opened.openedAt),
         // The payload as APNs delivered it, untouched. The reserved `carillon`
-        // key is an object here and a JSON string on Android, because that is
-        // what each transport carries; `deliveryId` is above so that no app has
-        // to know the difference.
+        // key is already an object here; on Android it arrives as a JSON string
+        // and the JavaScript layer parses it, so both platforms deliver the same shape.
         "payload": opened.userInfo,
       ])
     }
@@ -170,6 +184,12 @@ public final class CarillonBridge: NSObject {
   @objc
   public static func didOpen(_ response: UNNotificationResponse) {
     Carillon.didOpen(response)
+  }
+
+  /// Forward an opened payload from a delegate that belongs to another library.
+  @objc
+  public static func didOpen(userInfo: [AnyHashable: Any]) {
+    Carillon.didOpen(userInfo: userInfo)
   }
 
   /// Converts scalar JavaScript tag values. Unsupported values are omitted.

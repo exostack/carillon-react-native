@@ -79,6 +79,32 @@ class CarillonModule(private val context: ReactApplicationContext) :
     }
   }
 
+  override fun getPermission(promise: Promise) {
+    promise.resolve(Carillon.getPermission().name.lowercase(Locale.US))
+  }
+
+  override fun canRequestPermission(promise: Promise) {
+    val activity = context.currentActivity
+
+    if (activity == null) {
+      promise.reject(NO_ACTIVITY, "No activity is in the foreground to show the prompt on.")
+
+      return
+    }
+
+    promise.resolve(Carillon.canRequestPermission(activity))
+  }
+
+  override fun openNotificationSettings() = Carillon.openNotificationSettings(context)
+
+  override fun didOpen(payload: ReadableMap) {
+    Carillon.didOpen(stringsOf(payload))
+  }
+
+  override fun didReceive(payload: ReadableMap) = Carillon.didReceive(stringsOf(payload))
+
+  override fun didRotateToken(token: String) = Carillon.didRotate(token)
+
   override fun identify(externalId: String) = Carillon.identify(externalId)
 
   override fun clearIdentity() = Carillon.clearIdentity()
@@ -157,9 +183,8 @@ class CarillonModule(private val context: ReactApplicationContext) :
   private fun openedOf(opened: OpenedNotification): WritableMap {
     val payload = Arguments.createMap()
     // The data map as FCM delivered it, untouched. The reserved `carillon`
-    // entry is a JSON string on this platform and an object on iOS, because
-    // that is what each transport carries; `deliveryId` is here so that no app
-    // has to know the difference.
+    // entry is a JSON string here; the JavaScript layer parses it into the
+    // object iOS delivers, so both platforms hand the app the same shape.
     opened.data.forEach { (name, value) -> payload.putString(name, value) }
 
     return Arguments.createMap().apply {
@@ -197,6 +222,35 @@ class CarillonModule(private val context: ReactApplicationContext) :
             else tagOf(value)
         }
         else -> Unit
+      }
+    }
+
+    return result
+  }
+
+  /**
+   * A JavaScript payload as the string map FCM would have delivered. Nested
+   * values become JSON text, which is how the stamp travels on this platform.
+   */
+  private fun stringsOf(payload: ReadableMap): Map<String, String> {
+    val result = LinkedHashMap<String, String>()
+    val names = payload.keySetIterator()
+
+    while (names.hasNextKey()) {
+      val name = names.nextKey()
+
+      when (payload.getType(name)) {
+        ReadableType.String -> payload.getString(name)?.let { result[name] = it }
+        ReadableType.Boolean -> result[name] = payload.getBoolean(name).toString()
+        ReadableType.Number -> {
+          val value = payload.getDouble(name)
+          result[name] =
+            if (value == Math.floor(value) && !value.isInfinite()) value.toLong().toString()
+            else value.toString()
+        }
+        ReadableType.Map -> payload.getMap(name)?.let { result[name] = JSONObject(it.toHashMap()).toString() }
+        ReadableType.Array -> payload.getArray(name)?.let { result[name] = JSONArray(it.toArrayList()).toString() }
+        ReadableType.Null -> Unit
       }
     }
 

@@ -23,6 +23,8 @@ Carillon.configure({ key: 'YOUR_MOBILE_KEY', debug: __DEV__ });
 
 const permission = await Carillon.requestPermission();
 // 'allowed' | 'denied' | 'provisional' | 'undetermined'
+await Carillon.getPermission(); // same values, never prompts
+if (!(await Carillon.canRequestPermission())) Carillon.openNotificationSettings();
 
 Carillon.identify('user-42'); // null forgets the identifier
 Carillon.setTags({ plan: 'pro', seats: 12 }); // replaced whole, never merged
@@ -56,11 +58,17 @@ Forward the callbacks below for a bare React Native app. The
 
 ### iOS
 
-Add the push capability to your target, then forward three callbacks from
-`AppDelegate.swift`:
+Add the push capability to your target. Make the app delegate the
+notification-center delegate at the top of `didFinishLaunchingWithOptions`, so
+that a launch from a tap has somewhere to deliver its open to, then forward four
+callbacks from `AppDelegate.swift`:
 
 ```swift
+import UserNotifications
 import CarillonReactNative
+
+// In application(_:didFinishLaunchingWithOptions:), before anything else:
+UNUserNotificationCenter.current().delegate = self
 
 func application(
   _ application: UIApplication,
@@ -84,13 +92,19 @@ func userNotificationCenter(
   CarillonBridge.didOpen(response)
   completionHandler()
 }
+
+func userNotificationCenter(
+  _ center: UNUserNotificationCenter,
+  willPresent notification: UNNotification,
+  withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+) {
+  CarillonBridge.willPresent(notification, completionHandler: completionHandler)
+}
 ```
 
-Use `CarillonBridge` from `CarillonReactNative` in the app delegate.
-
-Set `UNUserNotificationCenter.current().delegate` before anything else in
-`didFinishLaunching`, so that a launch from a tap has somewhere to deliver its
-open to.
+The app delegate must conform to `UNUserNotificationCenterDelegate` for the last
+two. If another library already owns the delegate, see
+[Using Carillon beside another notification library](#using-carillon-beside-another-notification-library).
 
 ### Android
 
@@ -111,7 +125,9 @@ Declare the permission under `<manifest>` and the service under `<application>`:
 An app that already has a `FirebaseMessagingService` keeps it and forwards
 `Carillon.didRotate(token)` and `Carillon.didReceive(message)` instead — Firebase
 dispatches to one service per application, so two declarations mean one of them
-silently never runs.
+silently never runs. When that service lives in another React Native library,
+forward from JavaScript instead; see
+[Using Carillon beside another notification library](#using-carillon-beside-another-notification-library).
 
 Import `dev.carillon.sdk.Carillon` and forward launcher intents from your activity:
 
@@ -144,13 +160,37 @@ Add the plugin to your Expo configuration:
 }
 ```
 
-`expo prebuild` then writes the push entitlement and the three forwarded
-callbacks on iOS, and the messaging service, the runtime permission and the
-google-services wiring on Android. It also forwards notification opens from
-Kotlin `MainActivity.onCreate` and `onNewIntent`, preserving existing callbacks.
-Java activities require conversion to Kotlin for this plugin; bare installations
-can use the manual forwarding shown above. Every transform is idempotent, because
-prebuild runs them again over their own output.
+`expo prebuild` then writes, on iOS: the push entitlement, the
+notification-center delegate installation at the top of
+`didFinishLaunchingWithOptions`, the four forwarded callbacks with the
+`UNUserNotificationCenterDelegate` conformance, and the
+`CarillonNotificationExtension` target for images. On Android: the messaging
+service, the runtime permission, the google-services wiring, and the
+`Carillon.didOpen(intent)` forwarding in Kotlin `MainActivity.onCreate` and
+`onNewIntent`, preserving existing callbacks. Java activities require conversion
+to Kotlin for this plugin; bare installations can use the manual forwarding shown
+above. Every transform is idempotent, because prebuild runs them again over its
+own output.
+
+Options:
+
+```json
+["@exostack/carillon-react-native", {
+  "installNotificationCenterDelegate": true,
+  "messagingService": "auto"
+}]
+```
+
+- `installNotificationCenterDelegate` (default `true`). Set to `false` when
+  another library owns the iOS notification-center delegate: the plugin then
+  writes only the two registration callbacks, and the app forwards opens from
+  JavaScript.
+- `messagingService`: `"auto"` (default), `"carillon"` or `"external"`. In
+  `auto`, the Carillon service is declared unless an installed package declares
+  its own Firebase messaging service in its Android manifest, in which case
+  prebuild prints a warning naming that package and the app forwards token
+  rotation and messages from JavaScript.
+  `carillon` always declares it; `external` never does.
 
 ## Native dependencies
 
@@ -167,7 +207,10 @@ exostack/
 ```
 
 For iOS, set `CARILLON_SWIFT_PATH` to the absolute Swift checkout path before
-running `pod install`. The example Podfile detects the sibling checkout automatically.
+running `pod install` or `expo prebuild`: the podspec resolves the app's
+dependency from it, and the Expo plugin references the generated notification
+extension's package from it as a local package. The example Podfile detects the
+sibling checkout automatically.
 
 For Android, publish the local SDK and enable `mavenLocal()` in the consuming
 project. The example already enables it:
@@ -205,6 +248,11 @@ yarn typecheck
 Tests cover argument forwarding, subscriptions, cold-start replay ordering, and
 Expo configuration transforms. Registration and retry tests live in the native SDKs.
 
+Not covered here: the bridges' three-second foreground timeout and their handling
+of a late or duplicate `finishReceived` answer live in `ios/CarillonBridge.swift`
+and `CarillonModule.kt`, which have no test target in this repository. The
+JavaScript suite only asserts what is sent to the mocked native module.
+
 [swift]: https://github.com/exostack/carillon-swift
 [kotlin]: https://github.com/exostack/carillon-kotlin
 
@@ -219,8 +267,10 @@ const unsubscribe = Carillon.onDeviceIdChanged((id) => console.log(id));
 The SDK persists a random installation secret and the last confirmed device ID.
 Token rotation reuses that ID when the server validates the proof. Reinstallation
 or merging with an existing token registration can change the ID; the callback
-fires on first registration and when the confirmed ID changes. The ID itself is
-not a credential. Never log or export the installation secret.
+fires on first registration and when the confirmed ID changes. A subscriber
+attached after the ID is already known receives it immediately, so it needs no
+separate `getDeviceId` call at startup. The ID itself is not a credential. Never
+log or export the installation secret.
 
 
 ## Foreground presentation and images
@@ -253,3 +303,53 @@ Android foreground rendering uses `carillon_default` unless the requested channe
 exists. Supply `carillon_notification_icon` as a drawable; otherwise the app icon is used.
 Images have a 10-second budget and fall back to text. Android 8+ channels control sound;
 Android 13+ needs notification permission. FCM handles background notification display.
+
+## Using Carillon beside another notification library
+
+When another library already owns the native callbacks — the iOS
+notification-center delegate, or the Android Firebase messaging service —
+Carillon must not claim them a second time. Keep the other library's native
+setup and forward from JavaScript:
+
+```ts
+import Carillon from '@exostack/carillon-react-native';
+
+// Android token rotation. No effect on iOS, where the token arrives through
+// the app delegate's registration callback.
+messaging().onTokenRefresh(Carillon.didRotateToken);
+
+// Android messages, including those received in the background. No effect on
+// iOS, where foreground presentation is decided in the delegate.
+messaging().setBackgroundMessageHandler(async (remoteMessage) => {
+  Carillon.didReceive(remoteMessage.data ?? {});
+});
+messaging().onMessage(async (remoteMessage) => {
+  Carillon.didReceive(remoteMessage.data ?? {});
+});
+
+// Taps, warm and cold. Payloads without a Carillon delivery id are ignored.
+messaging().onNotificationOpenedApp((remoteMessage) => {
+  Carillon.didOpen(remoteMessage.data ?? {});
+});
+const initial = await messaging().getInitialNotification();
+if (initial) Carillon.didOpen(initial.data ?? {});
+```
+
+`messaging()` stands for whatever your Firebase messaging library exposes; the
+other library's hook names differ, the forwarded values do not. On iOS, pass the
+notification's full `userInfo` (the object under the tap event) to `didOpen`.
+
+On Android, `didReceive` runs the foreground display path for a Carillon message
+and `didRotateToken` updates the FCM token. Object and array values are
+serialised to JSON strings, which is how the data map travels over FCM.
+
+On iOS, presentation of a foreground notification has to be decided
+synchronously inside `userNotificationCenter(_:willPresent:withCompletionHandler:)`,
+so `didReceive` does nothing there and `onReceived` handlers are not consulted.
+An app whose delegate belongs to another library either calls
+`CarillonBridge.willPresent(notification, completionHandler:)` from that
+delegate natively, which routes the decision to `onReceived`, or accepts the
+system's default presentation.
+
+With Expo, set `installNotificationCenterDelegate: false` and, if the plugin has
+not detected the other library, `messagingService: "external"`.
