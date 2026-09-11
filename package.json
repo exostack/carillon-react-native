@@ -58,6 +58,7 @@
   },
   "homepage": "https://github.com/exostack/carillon-react-native#readme",
   "publishConfig": {
+    "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
   "devDependencies": {
