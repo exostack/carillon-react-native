@@ -534,7 +534,7 @@ describe('notification service extension', () => {
   };
 
   it('resolves the Swift package from the environment as the podspec does', () => {
-    expect(swiftPackageSource({})).toEqual({ kind: 'remote', minimumVersion: '0.2.0' });
+    expect(swiftPackageSource({})).toEqual({ kind: 'remote', minimumVersion: '0.2.1' });
     expect(swiftPackageSource({ CARILLON_SWIFT_PATH: '/checkouts/carillon-swift' })).toEqual({
       kind: 'local',
       path: '/checkouts/carillon-swift',

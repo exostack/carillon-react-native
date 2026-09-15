@@ -4,7 +4,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 
 type Project = Parameters<Parameters<typeof withXcodeProject>[1]>[0]['modResults'];
 export const EXTENSION_NAME = 'CarillonNotificationExtension';
-export const SWIFT_PACKAGE_VERSION = '0.2.0';
+export const SWIFT_PACKAGE_VERSION = '0.2.1';
 
 /**
  * Where the extension's Swift package comes from: the published repository,
