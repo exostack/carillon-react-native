@@ -6,7 +6,7 @@ buildscript {
     // The Android SDK this bridge binds. A published coordinate, resolved from
     // Maven Central once carillon-kotlin is there; see the README for what
     // resolves it today.
-    sdkVersion: "0.2.0"
+    sdkVersion: "0.2.1"
   ]
 
   ext.getExtOrDefault = { prop ->
@@ -58,5 +58,5 @@ dependencies {
   // integration does. A dependency the integration requires is part of this
   // package's surface, and hiding it would only mean every app declaring the
   // SDK a second time.
-  api "dev.carillon:carillon:${getExtOrDefault('sdkVersion')}"
+  api "com.exostack:carillon:${getExtOrDefault('sdkVersion')}"
 }

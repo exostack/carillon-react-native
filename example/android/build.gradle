@@ -26,7 +26,7 @@ apply plugin: "com.facebook.react.rootproject"
 
 allprojects {
     repositories {
-        // Where dev.carillon:carillon comes from until carillon-kotlin is on
+        // Where com.exostack:carillon comes from until carillon-kotlin is on
         // Maven Central: `./gradlew publishToMavenLocal` in that repository.
         // The coordinate is the published one, so nothing here changes on the
         // day it stops being local.
