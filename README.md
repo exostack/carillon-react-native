@@ -195,7 +195,7 @@ Options:
 ## Native dependencies
 
 The podspec resolves `carillon-swift` through Swift Package Manager with minimum
-version `0.2.0`. Gradle resolves `dev.carillon:carillon:0.2.0`.
+version `0.2.1`. Gradle resolves `dev.carillon:carillon:0.2.0`.
 
 For local development, clone the native SDKs beside this repository:
 
