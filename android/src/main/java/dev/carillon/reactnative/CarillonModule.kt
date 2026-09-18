@@ -154,9 +154,7 @@ class CarillonModule(private val context: ReactApplicationContext) :
         putString("body", received.body)
         putString("image", received.image)
         putString("threadId", received.threadId)
-        putMap("data", Arguments.createMap().apply {
-          received.data.forEach { (key, value) -> putString(key, value) }
-        })
+        putMap("data", Arguments.makeNativeMap(received.structuredData))
       })
     }
   }
@@ -181,11 +179,7 @@ class CarillonModule(private val context: ReactApplicationContext) :
   }
 
   private fun openedOf(opened: OpenedNotification): WritableMap {
-    val payload = Arguments.createMap()
-    // The data map as FCM delivered it, untouched. The reserved `carillon`
-    // entry is a JSON string here; the JavaScript layer parses it into the
-    // object iOS delivers, so both platforms hand the app the same shape.
-    opened.data.forEach { (name, value) -> payload.putString(name, value) }
+    val payload = Arguments.makeNativeMap(opened.structuredData)
 
     return Arguments.createMap().apply {
       putString("deliveryId", opened.deliveryId)

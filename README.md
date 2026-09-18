@@ -413,3 +413,12 @@ Without these defaults Firebase may use its fallback channel and the app icon.
 Changing to data-only messages changes background processing and delivery
 behavior; it is not required to configure the icon and channel. See
 [Firebase message handling](https://firebase.google.com/docs/cloud-messaging/android/receive-messages).
+
+
+### Structured notification data
+
+Custom notification data can contain nested JSON objects and arrays. Supported SDKs
+restore those values automatically. Strings containing JSON text remain strings.
+
+Read decoded values from `notification.data` in `onReceived` and
+`notification.payload` in `onOpened`. On Android this requires native SDK 0.3.0 or later.
