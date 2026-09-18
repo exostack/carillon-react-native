@@ -159,9 +159,6 @@ export default function App() {
         <Heading>Tags</Heading>
         <Field placeholder="name" value={tagName} onChangeText={setTagName} />
         <Field placeholder="value" value={tagValue} onChangeText={setTagValue} />
-        {/* One pair at a time, sent as the whole map. The SDK replaces rather
-            than merges, which the bench shows honestly rather than papering
-            over by accumulating pairs of its own. */}
         <Button
           title="setTags()"
           onPress={() =>
@@ -171,8 +168,8 @@ export default function App() {
           }
         />
         <Button
-          title="setTags({})"
-          onPress={() => void act('setTags({})', () => Carillon.setTags({}))}
+          title="removeTag()"
+          onPress={() => void act(`removeTag(${tagName})`, () => Carillon.removeTag(tagName))}
         />
 
         <Heading>Opt in</Heading>

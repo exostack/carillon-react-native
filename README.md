@@ -27,7 +27,10 @@ await Carillon.getPermission(); // same values, never prompts
 if (!(await Carillon.canRequestPermission())) Carillon.openNotificationSettings();
 
 Carillon.identify('user-42'); // null forgets the identifier
-Carillon.setTags({ plan: 'pro', seats: 12 }); // replaced whole, never merged
+Carillon.setTags({ plan: 'pro', seats: 12 }); // merged; omitted keys are unchanged
+Carillon.setTag('language', 'fr');
+Carillon.setTags({ seats: null });
+Carillon.removeTag('language');
 Carillon.optOut();
 Carillon.optIn();
 

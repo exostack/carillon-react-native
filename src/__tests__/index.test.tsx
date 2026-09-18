@@ -326,3 +326,12 @@ describe('foreground presentation', () => {
     expect(mockNative.clearNotifications).toHaveBeenCalled();
   });
 });
+
+it('merges one tag and forwards explicit removals', () => {
+  Carillon.setTag('plan', 'pro');
+  expect(mockNative.setTags).toHaveBeenLastCalledWith({ plan: 'pro' });
+  Carillon.removeTag('plan');
+  expect(mockNative.setTags).toHaveBeenLastCalledWith({ plan: null });
+  Carillon.setTags({ beta: null, seats: 3 });
+  expect(mockNative.setTags).toHaveBeenLastCalledWith({ beta: null, seats: 3 });
+});

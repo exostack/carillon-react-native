@@ -6,7 +6,7 @@ buildscript {
     // The Android SDK this bridge binds. A published coordinate, resolved from
     // Maven Central once carillon-kotlin is there; see the README for what
     // resolves it today.
-    sdkVersion: "0.2.1"
+    sdkVersion: "0.3.0"
   ]
 
   ext.getExtOrDefault = { prop ->

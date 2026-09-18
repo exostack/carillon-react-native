@@ -21,7 +21,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - CarillonReactNative (0.2.0):
+  - CarillonReactNative (0.3.0):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -2026,7 +2026,7 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   AsyncStorage: 163ab23f6aa37a58b7f2379d0b4ee7ac84d6655c
-  CarillonReactNative: f194d988ba8921b999b320da82c55d35c6d689fa
+  CarillonReactNative: ef7c0bf23bdb1e8c778bbbeab6dd9946d15977b1
   FBLazyVector: c00c20551d40126351a6783c47ce75f5b374851b
   hermes-engine: e7f572408afef1c5ca0f7169418aab10c6c28fc3
   RCTDeprecation: 3bb167081b134461cfeb875ff7ae1945f8635257

@@ -173,10 +173,18 @@ export function identify(externalId: string | null): void {
 }
 
 /**
- * Replaces all device tags. Omitted tags are removed.
+ * Merges supplied tags. Null removes a key; omitted keys are unchanged.
  */
-export function setTags(tags: Record<string, TagValue>): void {
+export function setTags(tags: Record<string, TagValue | null>): void {
   NativeCarillon.setTags(tags);
+}
+
+export function setTag(name: string, value: TagValue): void {
+  setTags({ [name]: value });
+}
+
+export function removeTag(name: string): void {
+  setTags({ [name]: null });
 }
 
 /**
@@ -258,6 +266,8 @@ const Carillon = {
   didRotateToken,
   identify,
   setTags,
+  setTag,
+  removeTag,
   optIn,
   optOut,
   onOpened,

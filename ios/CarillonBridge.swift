@@ -50,7 +50,12 @@ public final class CarillonBridge: NSObject {
 
   @objc
   public static func setTags(_ tags: [String: Any]) {
-    Carillon.setTags(tags.compactMapValues(tagValue(of:)))
+    var patch: [String: TagValue?] = [:]
+    for (name, value) in tags {
+      if value is NSNull { patch.updateValue(nil, forKey: name) }
+      else if let tag = tagValue(of: value) { patch.updateValue(tag, forKey: name) }
+    }
+    Carillon.setTags(patch)
   }
 
   @objc

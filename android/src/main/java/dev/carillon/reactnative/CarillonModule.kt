@@ -201,14 +201,15 @@ class CarillonModule(private val context: ReactApplicationContext) :
    * TypeScript surface is where a tag's shape is rejected, and it is rejected
    * there before the call is written rather than after it has shipped.
    */
-  private fun tagsOf(tags: ReadableMap): Map<String, TagValue> {
-    val result = LinkedHashMap<String, TagValue>()
+  private fun tagsOf(tags: ReadableMap): Map<String, TagValue?> {
+    val result = LinkedHashMap<String, TagValue?>()
     val names = tags.keySetIterator()
 
     while (names.hasNextKey()) {
       val name = names.nextKey()
 
       when (tags.getType(name)) {
+        ReadableType.Null -> result[name] = null
         ReadableType.String -> tags.getString(name)?.let { result[name] = tagOf(it) }
         ReadableType.Boolean -> result[name] = tagOf(tags.getBoolean(name))
         ReadableType.Number -> {
