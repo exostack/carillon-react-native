@@ -125,8 +125,8 @@ Declare the permission under `<manifest>` and the service under `<application>`:
 An app that already has a `FirebaseMessagingService` keeps it and forwards
 `Carillon.didRotate(token)` and `Carillon.didReceive(message)` instead — Firebase
 dispatches to one service per application, so two declarations mean one of them
-silently never runs. When that service lives in another React Native library,
-forward from JavaScript instead; see
+silently never runs. When that service lives in another React Native library and exposes all incoming
+messages, forward from JavaScript; see
 [Using Carillon beside another notification library](#using-carillon-beside-another-notification-library).
 
 Import `dev.carillon.sdk.Carillon` and forward launcher intents from your activity:
@@ -183,8 +183,9 @@ Options:
 
 - `installNotificationCenterDelegate` (default `true`). Set to `false` when
   another library owns the iOS notification-center delegate: the plugin then
-  writes only the two registration callbacks, and the app forwards opens from
-  JavaScript.
+  writes only the two registration callbacks. The existing delegate must forward
+  opens and foreground presentation; JavaScript forwarding alone cannot provide
+  iOS foreground presentation.
 - `messagingService`: `"auto"` (default), `"carillon"` or `"external"`. In
   `auto`, the Carillon service is declared unless an installed package declares
   its own Firebase messaging service in its Android manifest, in which case
@@ -306,10 +307,24 @@ Android 13+ needs notification permission. FCM handles background notification d
 
 ## Using Carillon beside another notification library
 
-When another library already owns the native callbacks — the iOS
-notification-center delegate, or the Android Firebase messaging service —
-Carillon must not claim them a second time. Keep the other library's native
-setup and forward from JavaScript:
+First check which native callbacks the existing library owns and whether it
+exposes notifications sent outside its own service. A library's click handler
+may only report its own notifications. In that case, JavaScript forwarding
+cannot recover Carillon taps.
+
+On iOS, install an app-owned `UNUserNotificationCenterDelegate` at launch or use
+an existing delegate that explicitly forwards `didReceive` to
+`CarillonBridge.didOpen` and `willPresent` to `CarillonBridge.willPresent`.
+The latter is required for `onReceived` and its `suppress` decision. The delegate
+must call each completion handler exactly once; do not also call it after
+passing it to `CarillonBridge.willPresent`. Libraries that swizzle these methods
+need a tested integration: disabling their interception can stop their own
+notification handling. Test both providers before releasing a coexistence build.
+
+On Android, keep exactly one `FirebaseMessagingService`. If its React Native
+wrapper exposes all incoming messages, token changes and taps, forward them
+using that wrapper's documented hooks. The following example uses a
+Firebase Messaging-style API; it does not apply to libraries without these hooks:
 
 ```ts
 import Carillon from '@exostack/carillon-react-native';
@@ -335,21 +350,63 @@ const initial = await messaging().getInitialNotification();
 if (initial) Carillon.didOpen(initial.data ?? {});
 ```
 
-`messaging()` stands for whatever your Firebase messaging library exposes; the
-other library's hook names differ, the forwarded values do not. On iOS, pass the
-notification's full `userInfo` (the object under the tap event) to `didOpen`.
+Use these hooks only when your installed messaging library provides them.
+On iOS, a JavaScript tap hook can forward the notification's full `userInfo`
+to `didOpen` only if it actually receives notifications sent by Carillon.
 
 On Android, `didReceive` runs the foreground display path for a Carillon message
 and `didRotateToken` updates the FCM token. Object and array values are
 serialised to JSON strings, which is how the data map travels over FCM.
 
-On iOS, presentation of a foreground notification has to be decided
-synchronously inside `userNotificationCenter(_:willPresent:withCompletionHandler:)`,
-so `didReceive` does nothing there and `onReceived` handlers are not consulted.
-An app whose delegate belongs to another library either calls
-`CarillonBridge.willPresent(notification, completionHandler:)` from that
-delegate natively, which routes the decision to `onReceived`, or accepts the
-system's default presentation.
+On iOS, `didReceive` is a no-op: it cannot answer the native presentation callback.
+`CarillonBridge.willPresent` forwards that callback to `onReceived`, waits for
+its asynchronous decision, and falls back to showing after three seconds.
 
-With Expo, set `installNotificationCenterDelegate: false` and, if the plugin has
-not detected the other library, `messagingService: "external"`.
+With Expo, set `installNotificationCenterDelegate: false` only when an existing
+delegate provides the native forwarding above. Set `messagingService: "external"`
+only when another Android service forwards messages and token changes.
+The `auto` mode detects `MESSAGING_EVENT` services, not broadcast receivers;
+a receiver alone does not replace the Carillon service.
+
+Verify registration, foreground show/suppress, background taps, cold-start taps,
+and token rotation. During coexistence, run these checks for each sender.
+
+## Android background appearance
+
+Messages with a `notification` payload are displayed by Firebase while the app
+is in the background. They bypass `CarillonMessagingService` and its display
+settings. Foreground Carillon rendering uses `carillon_default` and the drawable
+`carillon_notification_icon`; Firebase needs its own defaults.
+
+Add a monochrome notification drawable named `carillon_notification_icon`, then
+put these entries inside `<application>` in `AndroidManifest.xml`:
+
+```xml
+<meta-data
+  android:name="com.google.firebase.messaging.default_notification_icon"
+  android:resource="@drawable/carillon_notification_icon" />
+<meta-data
+  android:name="com.google.firebase.messaging.default_notification_channel_id"
+  android:value="carillon_default" />
+```
+
+Create the channel at startup, before the first background notification. For
+example, add this to your application's `onCreate`, after `super.onCreate()`:
+
+```kotlin
+if (android.os.Build.VERSION.SDK_INT >= 26) {
+  getSystemService(android.app.NotificationManager::class.java)
+    .createNotificationChannel(android.app.NotificationChannel(
+      "carillon_default", "Notifications", android.app.NotificationManager.IMPORTANCE_DEFAULT
+    ))
+}
+```
+
+Use a localized channel name in your app. If you choose a different channel ID,
+create it before use and configure the Firebase default accordingly. Existing
+channels keep the user's settings.
+
+Without these defaults Firebase may use its fallback channel and the app icon.
+Changing to data-only messages changes background processing and delivery
+behavior; it is not required to configure the icon and channel. See
+[Firebase message handling](https://firebase.google.com/docs/cloud-messaging/android/receive-messages).
