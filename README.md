@@ -27,9 +27,10 @@ await Carillon.getPermission(); // same values, never prompts
 if (!(await Carillon.canRequestPermission())) Carillon.openNotificationSettings();
 
 Carillon.identify('user-42'); // null forgets the identifier
-Carillon.setTags({ plan: 'pro', seats: 12 }); // merged; omitted keys are unchanged
+Carillon.setTag('plan', 'pro');
+Carillon.setTagNumber('seats', 12);
 Carillon.setTag('language', 'fr');
-Carillon.setTags({ seats: null });
+Carillon.removeTagNumber('seats');
 Carillon.removeTag('language');
 Carillon.optOut();
 Carillon.optIn();
@@ -422,3 +423,18 @@ restore those values automatically. Strings containing JSON text remain strings.
 
 Read decoded values from `notification.data` in `onReceived` and
 `notification.payload` in `onOpened`. On Android this requires native SDK 0.3.0 or later.
+
+
+## Typed tags
+
+Use `setTag` for strings, `setTagNumber` for finite numbers, `setTagBoolean` for
+booleans, and `setTagDate` for native dates (Swift `Date`, Kotlin `java.util.Date`,
+JavaScript `Date`). Dates are serialized as UTC ISO timestamps. `setTags` accepts
+string values or null removals only.
+
+Each type has its own namespace: the same key may exist independently in several
+types. Remove values with `removeTag`, `removeTagNumber`, `removeTagBoolean`, or
+`removeTagDate`. Pending writes and removals survive restarts and retries.
+
+See the [tags guide](https://carillon.dev/docs/concepts/tags) for API formats,
+shared user profiles, audience filters, limits and examples.

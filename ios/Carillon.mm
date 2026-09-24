@@ -79,6 +79,36 @@
   [CarillonBridge setTags:tags];
 }
 
+- (void)setTagNumber:(NSString *)name value:(double)value
+{
+  [CarillonBridge setTagNumber:name value:value];
+}
+
+- (void)removeTagNumber:(NSString *)name
+{
+  [CarillonBridge removeTagNumber:name];
+}
+
+- (void)setTagBoolean:(NSString *)name value:(BOOL)value
+{
+  [CarillonBridge setTagBoolean:name value:value];
+}
+
+- (void)removeTagBoolean:(NSString *)name
+{
+  [CarillonBridge removeTagBoolean:name];
+}
+
+- (void)setTagDate:(NSString *)name milliseconds:(double)milliseconds
+{
+  [CarillonBridge setTagDate:name milliseconds:milliseconds];
+}
+
+- (void)removeTagDate:(NSString *)name
+{
+  [CarillonBridge removeTagDate:name];
+}
+
 - (void)optIn
 {
   [CarillonBridge optIn];
