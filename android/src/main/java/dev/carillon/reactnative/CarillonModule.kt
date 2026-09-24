@@ -13,8 +13,6 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import android.os.Handler
 import android.os.Looper
-import dev.carillon.sdk.TagValue
-import dev.carillon.sdk.tagOf
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -111,6 +109,13 @@ class CarillonModule(private val context: ReactApplicationContext) :
 
   override fun setTags(tags: ReadableMap) = Carillon.setTags(tagsOf(tags))
 
+  override fun setTagNumber(name: String, value: Double) = Carillon.setTagNumber(name, value)
+  override fun setTagBoolean(name: String, value: Boolean) = Carillon.setTagBoolean(name, value)
+  override fun setTagDate(name: String, milliseconds: Double) = Carillon.setTagDate(name, java.util.Date(milliseconds.toLong()))
+  override fun removeTagNumber(name: String) = Carillon.removeTagNumber(name)
+  override fun removeTagBoolean(name: String) = Carillon.removeTagBoolean(name)
+  override fun removeTagDate(name: String) = Carillon.removeTagDate(name)
+
   override fun optIn() = Carillon.optIn()
 
   override fun optOut() = Carillon.optOut()
@@ -188,39 +193,9 @@ class CarillonModule(private val context: ReactApplicationContext) :
     }
   }
 
-  /**
-   * A JavaScript object, as the SDK's sealed tag type.
-   *
-   * Anything that is not a flat scalar is dropped rather than refused: the
-   * TypeScript surface is where a tag's shape is rejected, and it is rejected
-   * there before the call is written rather than after it has shipped.
-   */
-  private fun tagsOf(tags: ReadableMap): Map<String, TagValue?> {
-    val result = LinkedHashMap<String, TagValue?>()
-    val names = tags.keySetIterator()
-
-    while (names.hasNextKey()) {
-      val name = names.nextKey()
-
-      when (tags.getType(name)) {
-        ReadableType.Null -> result[name] = null
-        ReadableType.String -> tags.getString(name)?.let { result[name] = tagOf(it) }
-        ReadableType.Boolean -> result[name] = tagOf(tags.getBoolean(name))
-        ReadableType.Number -> {
-          // A whole number arrives from JavaScript as a double and would
-          // otherwise be sent as `12.0`. The SDK draws the same distinction
-          // when it restores a stored map; drawing it here means a tag survives
-          // a round trip looking like what the customer wrote.
-          val value = tags.getDouble(name)
-          result[name] =
-            if (value == Math.floor(value) && !value.isInfinite()) tagOf(value.toLong())
-            else tagOf(value)
-        }
-        else -> Unit
-      }
-    }
-
-    return result
+  private fun tagsOf(tags: ReadableMap): Map<String, String?> = tags.toHashMap().mapValues { (_, value) ->
+    require(value == null || value is String) { "Text tags require strings" }
+    value as String?
   }
 
   /**

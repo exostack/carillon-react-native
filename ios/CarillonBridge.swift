@@ -50,13 +50,20 @@ public final class CarillonBridge: NSObject {
 
   @objc
   public static func setTags(_ tags: [String: Any]) {
-    var patch: [String: TagValue?] = [:]
+    var patch: [String: String?] = [:]
     for (name, value) in tags {
       if value is NSNull { patch.updateValue(nil, forKey: name) }
-      else if let tag = tagValue(of: value) { patch.updateValue(tag, forKey: name) }
+      else if let tag = value as? String { patch.updateValue(tag, forKey: name) }
     }
     Carillon.setTags(patch)
   }
+
+  @objc public static func setTagNumber(_ name: String, value: Double) { Carillon.setTagNumber(name, value) }
+  @objc public static func setTagBoolean(_ name: String, value: Bool) { Carillon.setTagBoolean(name, value) }
+  @objc public static func setTagDate(_ name: String, milliseconds: Double) { Carillon.setTagDate(name, Date(timeIntervalSince1970: milliseconds / 1000)) }
+  @objc public static func removeTagNumber(_ name: String) { Carillon.removeTagNumber(name) }
+  @objc public static func removeTagBoolean(_ name: String) { Carillon.removeTagBoolean(name) }
+  @objc public static func removeTagDate(_ name: String) { Carillon.removeTagDate(name) }
 
   @objc
   public static func optIn() {
@@ -195,27 +202,6 @@ public final class CarillonBridge: NSObject {
   @objc
   public static func didOpen(userInfo: [AnyHashable: Any]) {
     Carillon.didOpen(userInfo: userInfo)
-  }
-
-  /// Converts scalar JavaScript tag values. Unsupported values are omitted.
-  private static func tagValue(of value: Any) -> TagValue? {
-    if let text = value as? String { return .string(text) }
-
-    guard let number = value as? NSNumber else { return nil }
-
-    // JavaScript's booleans and numbers are both NSNumber by the time they get
-    // here, and only the type id tells them apart.
-    if CFGetTypeID(number) == CFBooleanGetTypeID() { return .bool(number.boolValue) }
-
-    let value = number.doubleValue
-
-    // A whole number arrives from JavaScript as a double and would otherwise be
-    // sent as `12.0`. The SDK draws the same distinction when it restores a
-    // stored map; drawing it here means a tag survives a round trip looking
-    // like what the customer wrote.
-    guard value == value.rounded(), value.magnitude < 9e15 else { return .double(value) }
-
-    return .int(Int(value))
   }
 
   /// UTC timestamp format exposed to JavaScript, including milliseconds.

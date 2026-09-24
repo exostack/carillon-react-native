@@ -32,6 +32,12 @@ export interface Spec extends TurboModule {
   identify(externalId: string): void;
   clearIdentity(): void;
   setTags(tags: CodegenTypes.UnsafeObject): void;
+  setTagNumber(name: string, value: number): void;
+  setTagBoolean(name: string, value: boolean): void;
+  setTagDate(name: string, milliseconds: number): void;
+  removeTagNumber(name: string): void;
+  removeTagBoolean(name: string): void;
+  removeTagDate(name: string): void;
   optIn(): void;
   optOut(): void;
 

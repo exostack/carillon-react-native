@@ -26,15 +26,12 @@ export type CarillonOptions = {
  * iOS also supports provisional (quiet delivery) and undetermined (not yet requested).
  */
 export type PushPermission =
-  | 'allowed'
-  | 'denied'
-  | 'provisional'
-  | 'undetermined';
+  'allowed' | 'denied' | 'provisional' | 'undetermined';
 
 /**
  * Device tag value. Nested values are unsupported.
  */
-export type TagValue = string | number | boolean;
+export type TagValue = string;
 
 /**
  * Opened notification with its delivery id, original payload, and tap time.
@@ -68,11 +65,19 @@ export function onReceived(
 ): () => void {
   removeReceived?.();
   const subscription = NativeCarillon.onReceived((event) => {
-    const { requestId, ...notification } = event as ReceivedNotification & { requestId: string };
-    Promise.resolve().then(() => handler(notification)).then(
-      (decision) => NativeCarillon.finishReceived(requestId, decision === 'suppress' ? 'suppress' : 'show'),
-      () => NativeCarillon.finishReceived(requestId, 'show')
-    );
+    const { requestId, ...notification } = event as ReceivedNotification & {
+      requestId: string;
+    };
+    Promise.resolve()
+      .then(() => handler(notification))
+      .then(
+        (decision) =>
+          NativeCarillon.finishReceived(
+            requestId,
+            decision === 'suppress' ? 'suppress' : 'show',
+          ),
+        () => NativeCarillon.finishReceived(requestId, 'show'),
+      );
   });
   const remove = () => {
     subscription.remove();
@@ -176,11 +181,46 @@ export function identify(externalId: string | null): void {
  * Merges supplied tags. Null removes a key; omitted keys are unchanged.
  */
 export function setTags(tags: Record<string, TagValue | null>): void {
+  for (const value of Object.values(tags)) {
+    if (value !== null && typeof value !== 'string')
+      throw new TypeError(
+        'Use setTagNumber or setTagBoolean for non-text tags',
+      );
+  }
   NativeCarillon.setTags(tags);
 }
 
 export function setTag(name: string, value: TagValue): void {
   setTags({ [name]: value });
+}
+
+export function setTagNumber(name: string, value: number): void {
+  if (typeof value !== 'number' || !Number.isFinite(value))
+    throw new TypeError('Tag numbers must be finite');
+  NativeCarillon.setTagNumber(name, value);
+}
+export function setTagBoolean(name: string, value: boolean): void {
+  if (typeof value !== 'boolean') throw new TypeError('Expected a boolean');
+  NativeCarillon.setTagBoolean(name, value);
+}
+export function setTagDate(name: string, value: Date): void {
+  if (
+    !(value instanceof Date) ||
+    !Number.isFinite(value.getTime()) ||
+    value.getUTCFullYear() < 1 ||
+    value.getUTCFullYear() > 9999
+  )
+    throw new TypeError('Expected a valid Date');
+  NativeCarillon.setTagDate(name, value.getTime());
+}
+export function removeTagNumber(name: string): void {
+  NativeCarillon.removeTagNumber(name);
+}
+export function removeTagBoolean(name: string): void {
+  NativeCarillon.removeTagBoolean(name);
+}
+export function removeTagDate(name: string): void {
+  NativeCarillon.removeTagDate(name);
 }
 
 export function removeTag(name: string): void {
@@ -267,6 +307,12 @@ const Carillon = {
   identify,
   setTags,
   setTag,
+  setTagNumber,
+  setTagBoolean,
+  setTagDate,
+  removeTagNumber,
+  removeTagBoolean,
+  removeTagDate,
   removeTag,
   optIn,
   optOut,

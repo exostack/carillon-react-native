@@ -40,6 +40,12 @@ const mockNative = {
   identify: jest.fn(),
   clearIdentity: jest.fn(),
   setTags: jest.fn(),
+  setTagDate: jest.fn(),
+  setTagNumber: jest.fn(),
+  setTagBoolean: jest.fn(),
+  removeTagDate: jest.fn(),
+  removeTagNumber: jest.fn(),
+  removeTagBoolean: jest.fn(),
   optIn: jest.fn(),
   optOut: jest.fn(),
   debugInfo: jest.fn(async () => ({ sdk_version: '0.1.0' })),
@@ -187,12 +193,11 @@ describe('identify', () => {
 
 describe('the state the app sets', () => {
   it('sends the tag map whole', () => {
-    Carillon.setTags({ plan: 'pro', seats: 12, trial: false });
+    Carillon.setTags({ plan: 'pro', locale: 'fr' });
 
     expect(mockNative.setTags).toHaveBeenCalledWith({
       plan: 'pro',
-      seats: 12,
-      trial: false,
+      locale: 'fr',
     });
   });
 
@@ -332,6 +337,36 @@ it('merges one tag and forwards explicit removals', () => {
   expect(mockNative.setTags).toHaveBeenLastCalledWith({ plan: 'pro' });
   Carillon.removeTag('plan');
   expect(mockNative.setTags).toHaveBeenLastCalledWith({ plan: null });
-  Carillon.setTags({ beta: null, seats: 3 });
-  expect(mockNative.setTags).toHaveBeenLastCalledWith({ beta: null, seats: 3 });
+  Carillon.setTags({ beta: null, plan: 'pro' });
+  expect(mockNative.setTags).toHaveBeenLastCalledWith({
+    beta: null,
+    plan: 'pro',
+  });
+});
+
+it('routes explicit tag types and rejects invalid JavaScript values', () => {
+  const date = new Date('2026-10-01T12:00:00Z');
+  Carillon.setTag('same', 'text');
+  Carillon.setTagNumber('same', 12);
+  Carillon.setTagBoolean('same', false);
+  Carillon.setTagDate('same', date);
+  expect(mockNative.setTags).toHaveBeenCalledWith({ same: 'text' });
+  expect(mockNative.setTagNumber).toHaveBeenCalledWith('same', 12);
+  expect(mockNative.setTagBoolean).toHaveBeenCalledWith('same', false);
+  expect(mockNative.setTagDate).toHaveBeenCalledWith('same', date.getTime());
+  Carillon.removeTagDate('same');
+  Carillon.removeTagNumber('same');
+  Carillon.removeTagBoolean('same');
+  expect(mockNative.removeTagDate).toHaveBeenCalledWith('same');
+  expect(mockNative.removeTagNumber).toHaveBeenCalledWith('same');
+  expect(mockNative.removeTagBoolean).toHaveBeenCalledWith('same');
+  expect(() => Carillon.setTagNumber('x', NaN)).toThrow(TypeError);
+  expect(() => Carillon.setTagNumber('x', Infinity)).toThrow(TypeError);
+  expect(() => Carillon.setTagDate('x', new Date('invalid'))).toThrow(
+    TypeError,
+  );
+  // @ts-expect-error Runtime checks also protect plain JavaScript callers.
+  expect(() => Carillon.setTag('x', 12)).toThrow(TypeError);
+  // @ts-expect-error No coercion from strings.
+  expect(() => Carillon.setTagBoolean('x', 'false')).toThrow(TypeError);
 });
