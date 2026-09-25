@@ -1,4 +1,4 @@
-import NativeCarillon from './NativeCarillon';
+import NativeCarillon from './carillon-module';
 
 /**
  * Carillon React Native SDK. Uses the native Swift and Kotlin SDKs for
