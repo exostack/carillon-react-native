@@ -65,4 +65,4 @@ export interface Spec extends TurboModule {
   readonly onOpened: CodegenTypes.EventEmitter<CodegenTypes.UnsafeObject>;
 }
 
-export default TurboModuleRegistry.getEnforcing<Spec>('Carillon');
+export default TurboModuleRegistry.get<Spec>('Carillon');

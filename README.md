@@ -1,7 +1,7 @@
 # @exostack/carillon-react-native
 
 Carillon SDK for React Native, using the native [Swift][swift] and [Kotlin][kotlin]
-SDKs. Requires a native build; Expo Go cannot load this module.
+SDKs. Requires a native build for push notifications. In Expo Go, the SDK is inactive and logs one warning when imported.
 
 ## Install
 
@@ -152,6 +152,13 @@ with your package name) and apply the `com.google.gms.google-services` Gradle
 plugin.
 
 ## Expo setup
+
+Expo Go can import the SDK without crashing. Calls have no native or network effects,
+and listeners never emit events. Permission methods return `undetermined`,
+`canRequestPermission()` returns `false`, and `getDeviceId()` returns `null`.
+`debugInfo()` returns `{ available: false, reason: 'expo_go', device_id: null }`.
+Tag argument validation still applies. Use a development build to test notifications.
+A missing native module outside Expo Go remains an installation error.
 
 Add the plugin to your Expo configuration:
 
