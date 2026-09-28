@@ -23,11 +23,15 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $version"
             exit 1
           fi
+      - name: Require published native SDKs
+        run: node scripts/check-native-releases.mjs
       - run: corepack enable
       - run: yarn install --immutable
       - run: yarn typecheck
       - run: yarn test
       - run: yarn prepare
+      - name: Test Expo plugin resolution
+        run: node --test scripts/expo-plugin.test.mjs
       # Trusted publishing is used when configured on npmjs.com; NPM_TOKEN is
       # only needed for the first publish, before the package exists.
       - run: npm publish --provenance

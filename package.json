@@ -1,6 +1,6 @@
 {
   "name": "@exostack/carillon-react-native",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "React Native bridge over the Carillon native SDKs.",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
@@ -10,7 +10,9 @@
       "types": "./lib/typescript/src/index.d.ts",
       "default": "./lib/module/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./app.plugin.js": "./app.plugin.js",
+    "./app.plugin": "./app.plugin.js"
   },
   "files": [
     "src",
