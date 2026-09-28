@@ -17,8 +17,12 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
+      - name: Test native release checks
+        run: node --test scripts/check-native-releases.test.mjs
       - run: corepack enable
       - run: yarn install --immutable
       - run: yarn typecheck
       - run: yarn test
       - run: yarn prepare
+      - name: Test Expo plugin resolution
+        run: node --test scripts/expo-plugin.test.mjs
