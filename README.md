@@ -470,3 +470,7 @@ with that binary. We recommend `runtimeVersion: { policy: 'fingerprint' }` in
 Expo configuration. A policy based only on the Expo SDK version does not track
 adding a native module between SDK upgrades. See
 [Expo runtime versions](https://docs.expo.dev/eas-update/runtime-versions/).
+
+Release 0.4.3 requires native Carillon Swift and Kotlin 0.4.1 or later for
+re-registration after mobile-key changes. Rebuild the native app and update its
+resolved native dependencies; an OTA update alone cannot apply this native fix.
