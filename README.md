@@ -445,3 +445,28 @@ types. Remove values with `removeTag`, `removeTagNumber`, `removeTagBoolean`, or
 
 See the [tags guide](https://carillon.dev/docs/concepts/tags) for API formats,
 shared user profiles, audience filters, limits and examples.
+
+## Runtime availability and Expo updates
+
+Static imports are safe in Expo Go, on the web, and in native binaries that do
+not include Carillon. In these runtimes the SDK is inactive: it does not register
+devices or send network requests, listeners are inert, and permission requests
+return `undetermined`. Missing native modules produce one warning at import.
+Web imports use the package's `.web` implementation.
+
+```ts
+import Carillon from '@exostack/carillon-react-native';
+
+if (Carillon.isAvailable()) {
+  Carillon.configure({ key: 'carillon_mk_live_…' });
+}
+console.log(await Carillon.debugInfo()); // available: false and a reason when inactive
+```
+
+A development or production build containing the native module is required for
+push notifications. An OTA JavaScript update cannot install native code. When
+adding or changing Carillon, rebuild the binary and keep Expo updates compatible
+with that binary. We recommend `runtimeVersion: { policy: 'fingerprint' }` in
+Expo configuration. A policy based only on the Expo SDK version does not track
+adding a native module between SDK upgrades. See
+[Expo runtime versions](https://docs.expo.dev/eas-update/runtime-versions/).
