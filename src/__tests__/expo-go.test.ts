@@ -81,14 +81,14 @@ describe('Expo Go', () => {
     expect(warning).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['standalone', 'guest'])('rejects a missing module in %s builds', (appOwnership) => {
+  it.each(['standalone', 'guest'])('degrades safely with a missing module in %s builds', (appOwnership) => {
     nativeModules.ExponentConstants = { appOwnership };
-    expect(() => load()).toThrow('Native module is missing');
-    expect(warning).not.toHaveBeenCalled();
+    expect(load().isAvailable()).toBe(false);
+    expect(warning).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects a missing module in bare React Native', () => {
-    expect(() => load()).toThrow('Native module is missing');
+  it('degrades safely with a missing module in bare React Native', () => {
+    expect(load().isAvailable()).toBe(false);
   });
 
   it('uses the real native module when present', () => {
@@ -96,6 +96,15 @@ describe('Expo Go', () => {
     get.mockReturnValue({ configure });
     load().configure({ key: 'mobile-key' });
     expect(configure).toHaveBeenCalledWith('mobile-key', undefined, undefined);
+    expect(load().isAvailable()).toBe(true);
     expect(warning).not.toHaveBeenCalled();
   });
+});
+
+it('provides a web fallback without accessing a native registry', async () => {
+  const web = require('../carillon-module.web') as typeof import('../carillon-module.web');
+  expect(web.available).toBe(false);
+  web.default.configure('key');
+  await expect(web.default.debugInfo()).resolves.toMatchObject({ available: false, reason: 'web' });
+  expect(get).not.toHaveBeenCalled();
 });

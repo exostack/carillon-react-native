@@ -1,4 +1,9 @@
-import NativeCarillon from './carillon-module';
+import NativeCarillon, { available } from './carillon-module';
+
+/** Whether this runtime includes the native Carillon module. */
+export function isAvailable(): boolean {
+  return available;
+}
 
 /**
  * Carillon React Native SDK. Uses the native Swift and Kotlin SDKs for
@@ -296,6 +301,7 @@ export async function debugInfo(): Promise<DebugInfo> {
 }
 
 const Carillon = {
+  isAvailable,
   configure,
   requestPermission,
   getPermission,
