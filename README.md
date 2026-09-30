@@ -127,7 +127,7 @@ Declare the permission under `<manifest>` and the service under `<application>`:
 ```
 
 An app that already has a `FirebaseMessagingService` keeps it and forwards
-`Carillon.didRotate(token)` and `Carillon.didReceive(message)` instead — Firebase
+`Carillon.didRotate(token)` and `Carillon.didReceive(message)` instead - Firebase
 dispatches to one service per application, so two declarations mean one of them
 silently never runs. When that service lives in another React Native library and exposes all incoming
 messages, forward from JavaScript; see
@@ -242,7 +242,7 @@ yarn example start
 yarn example android       # or: yarn example ios
 ```
 
-It defaults to the monorepo's local API — `http://10.0.2.2:28080` on Android,
+It defaults to the monorepo's local API - `http://10.0.2.2:28080` on Android,
 which is how an emulator reaches the host machine, and `http://localhost:28080`
 on a simulator. The endpoint and the mobile key are editable and persisted.
 
