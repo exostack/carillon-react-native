@@ -152,6 +152,7 @@ public final class CarillonBridge: NSObject {
     _ notification: UNNotification,
     completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
+    Carillon.didReceive(userInfo: notification.request.content.userInfo)
     receivedLock.lock()
     guard let handler = receivedHandler else {
       receivedLock.unlock()
