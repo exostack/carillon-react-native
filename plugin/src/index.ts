@@ -6,6 +6,7 @@ import {
   withAppBuildGradle,
   withAppDelegate,
   withEntitlementsPlist,
+  withInfoPlist,
   withMainActivity,
   withProjectBuildGradle,
   type ConfigPlugin,
@@ -28,6 +29,8 @@ import { dirname, join } from 'node:path';
 export type MessagingServiceMode = 'auto' | 'carillon' | 'external';
 
 export type CarillonPluginProps = {
+  /** Shared App Group for receipt recovery from the iOS notification extension. */
+  appGroup?: string;
   /**
    * Whether the plugin makes the AppDelegate the notification-center delegate
    * and inserts the `userNotificationCenter` callbacks. Set to `false` when
@@ -479,9 +482,19 @@ export function addAndroidOpenForwarding(
 const withCarillon: ConfigPlugin<CarillonPluginProps | void> = (config, props) => {
   const installDelegate = props?.installNotificationCenterDelegate ?? true;
   const messagingService = props?.messagingService ?? 'auto';
+  const appGroup = props?.appGroup;
+  if (appGroup && !/^group\.[A-Za-z0-9.-]+$/.test(appGroup)) throw new Error('Carillon appGroup must be a valid group identifier.');
+  if (appGroup) config = withInfoPlist(config, (mod) => {
+    mod.modResults.CarillonAppGroup = appGroup;
+    return mod;
+  });
 
   config = withEntitlementsPlist(config, (entitlements) => {
     entitlements.modResults = setApsEnvironment(entitlements.modResults);
+    if (appGroup) {
+      const groups = entitlements.modResults['com.apple.security.application-groups'];
+      entitlements.modResults['com.apple.security.application-groups'] = [...new Set([...(Array.isArray(groups) ? groups : []), appGroup])];
+    }
 
     return entitlements;
   });
@@ -542,7 +555,7 @@ const withCarillon: ConfigPlugin<CarillonPluginProps | void> = (config, props) =
     return gradle;
   });
 
-  config = withNotificationExtension(config);
+  config = withNotificationExtension(config, { appGroup });
 
   return AndroidConfig.Permissions.withPermissions(config, [
     'android.permission.POST_NOTIFICATIONS',
