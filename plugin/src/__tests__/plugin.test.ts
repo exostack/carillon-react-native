@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -534,7 +534,7 @@ describe('notification service extension', () => {
   };
 
   it('resolves the Swift package from the environment as the podspec does', () => {
-    expect(swiftPackageSource({})).toEqual({ kind: 'remote', minimumVersion: '0.2.1' });
+    expect(swiftPackageSource({})).toEqual({ kind: 'remote', minimumVersion: '0.5.0' });
     expect(swiftPackageSource({ CARILLON_SWIFT_PATH: '/checkouts/carillon-swift' })).toEqual({
       kind: 'local',
       path: '/checkouts/carillon-swift',
@@ -549,6 +549,16 @@ describe('notification service extension', () => {
     expect(written).toContain('isa = XCLocalSwiftPackageReference');
     expect(written).toContain('relativePath = "../../../carillon-swift"');
     expect(written).not.toContain('carillon-swift.git');
+  });
+
+  it('signs the extension with the shared receipt App Group idempotently', () => {
+    const project = exampleProject();
+    const source = { kind: 'remote', minimumVersion: '0.5.0' };
+    addNotificationExtension(project, 'dev.carillon.example', source, 'group.dev.carillon.example');
+    const first = project.writeSync();
+    expect(first).toContain('CODE_SIGN_ENTITLEMENTS = "CarillonNotificationExtension/CarillonNotificationExtension.entitlements"');
+    addNotificationExtension(project, 'dev.carillon.example', source, 'group.dev.carillon.example');
+    expect(project.writeSync()).toBe(first);
   });
 
   it('embeds one extension and links its Swift product idempotently', () => {
@@ -572,5 +582,38 @@ describe('notification service extension', () => {
     expect(first).not.toContain('path = undefined');
     addNotificationExtension(project, 'dev.carillon.example', { kind: 'remote', minimumVersion: '0.2.0' });
     expect(project.writeSync()).toBe(first);
+  });
+});
+
+
+describe('receipt App Group configuration', () => {
+  const withCarillon = require('../index').default;
+  const { withNotificationExtension } = require('../extension');
+  const xcode = require('xcode');
+  const path = require('node:path');
+
+  it('sets matching host and extension settings and EAS entitlements', async () => {
+    const appGroup = 'group.dev.carillon.example';
+    const config = withCarillon({ name: 'Example', slug: 'example', ios: { bundleIdentifier: 'dev.carillon.example' } }, { appGroup });
+    const request = { projectRoot: __dirname, platform: 'ios', modName: 'infoPlist', introspect: false };
+    const info = await config.mods.ios.infoPlist({ ...config, modResults: {}, modRequest: request });
+    expect(info.modResults.CarillonAppGroup).toBe(appGroup);
+    const entitlements = await config.mods.ios.entitlements({ ...config, modResults: { 'com.apple.security.application-groups': ['group.existing', appGroup] }, modRequest: { ...request, modName: 'entitlements' } });
+    expect(entitlements.modResults['com.apple.security.application-groups']).toEqual(['group.existing', appGroup]);
+    const extension = config.extra.eas.build.experimental.ios.appExtensions[0];
+    expect(extension.entitlements['com.apple.security.application-groups']).toEqual([appGroup]);
+    const folder = mkdtempSync(join(tmpdir(), 'carillon-receipt-plugin-'));
+    try {
+      const project = xcode.project(path.join(__dirname, '../../../example/ios/CarillonExample.xcodeproj/project.pbxproj'));
+      project.parseSync();
+      const extensionConfig = withNotificationExtension({ name: 'Example', slug: 'example', ios: { bundleIdentifier: 'dev.carillon.example' } }, { appGroup });
+      await extensionConfig.mods.ios.xcodeproj({ ...extensionConfig, modResults: project, modRequest: { ...request, modName: 'xcodeproj', platformProjectRoot: folder } });
+      expect(readFileSync(join(folder, 'CarillonNotificationExtension/CarillonNotificationExtension-Info.plist'), 'utf8')).toContain(`<key>CarillonAppGroup</key><string>${appGroup}</string>`);
+      expect(readFileSync(join(folder, 'CarillonNotificationExtension/CarillonNotificationExtension.entitlements'), 'utf8')).toContain(`<string>${appGroup}</string>`);
+    } finally { rmSync(folder, { recursive: true, force: true }); }
+  });
+
+  it('rejects an invalid group identifier before writing native files', () => {
+    expect(() => withCarillon({ name: 'Example', slug: 'example' }, { appGroup: 'invalid<&' })).toThrow('appGroup');
   });
 });

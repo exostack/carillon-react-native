@@ -4,7 +4,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 
 type Project = Parameters<Parameters<typeof withXcodeProject>[1]>[0]['modResults'];
 export const EXTENSION_NAME = 'CarillonNotificationExtension';
-export const SWIFT_PACKAGE_VERSION = '0.2.1';
+export const SWIFT_PACKAGE_VERSION = '0.5.0';
 
 /**
  * Where the extension's Swift package comes from: the published repository,
@@ -55,7 +55,8 @@ export const extensionPlist = `<?xml version="1.0" encoding="UTF-8"?>
 export function addNotificationExtension(
   project: Project,
   bundleId: string,
-  swiftPackage: SwiftPackageSource = swiftPackageSource()
+  swiftPackage: SwiftPackageSource = swiftPackageSource(),
+  appGroup?: string
 ): void {
   const objects = project.hash.project.objects;
   objects.PBXTargetDependency ??= {};
@@ -80,6 +81,7 @@ export function addNotificationExtension(
       PRODUCT_MODULE_NAME: 'CarillonNotificationService',
       PRODUCT_BUNDLE_IDENTIFIER: `"${bundleId}.${EXTENSION_NAME}"`,
       APPLICATION_EXTENSION_API_ONLY: 'YES',
+      ...(appGroup ? { CODE_SIGN_ENTITLEMENTS: `"${EXTENSION_NAME}/${EXTENSION_NAME}.entitlements"` } : {}),
       TARGETED_DEVICE_FAMILY: settings.TARGETED_DEVICE_FAMILY ?? '"1,2"',
       MARKETING_VERSION: settings.MARKETING_VERSION ?? '1.0',
       CURRENT_PROJECT_VERSION: settings.CURRENT_PROJECT_VERSION ?? '1',
@@ -126,7 +128,10 @@ export function addNotificationExtension(
   root.packageReferences.push({ value: packageId, comment: 'carillon-swift' });
 }
 
-export const withNotificationExtension: ConfigPlugin = (config) => {
+export const withNotificationExtension: ConfigPlugin<{ appGroup?: string } | void> = (config, props) => {
+  const appGroup = props?.appGroup;
+  if (appGroup && !/^group\.[A-Za-z0-9.-]+$/.test(appGroup)) throw new Error('Carillon appGroup must be a valid group identifier.');
+  const entitlements = appGroup ? { 'com.apple.security.application-groups': [appGroup] } : {};
   const bundleId = config.ios?.bundleIdentifier;
   if (!bundleId) throw new Error('Set ios.bundleIdentifier before configuring Carillon notifications.');
   const eas = config.extra?.eas ?? {};
@@ -137,15 +142,16 @@ export const withNotificationExtension: ConfigPlugin = (config) => {
   config.extra = { ...config.extra, eas: { ...eas, build: { ...build, experimental: { ...experimental, ios: {
     ...ios, appExtensions: [
       ...extensions.filter((item: { targetName: string }) => item.targetName !== EXTENSION_NAME),
-      { targetName: EXTENSION_NAME, bundleIdentifier: `${bundleId}.${EXTENSION_NAME}`, entitlements: {} },
+      { targetName: EXTENSION_NAME, bundleIdentifier: `${bundleId}.${EXTENSION_NAME}`, entitlements },
     ],
   } } } } };
   return withXcodeProject(config, (mod) => {
     const folder = join(mod.modRequest.platformProjectRoot, EXTENSION_NAME);
     mkdirSync(folder, { recursive: true });
     writeFileSync(join(folder, 'NotificationService.swift'), notificationService);
-    writeFileSync(join(folder, `${EXTENSION_NAME}-Info.plist`), extensionPlist);
-    addNotificationExtension(mod.modResults, bundleId);
+    writeFileSync(join(folder, `${EXTENSION_NAME}-Info.plist`), appGroup ? extensionPlist.replace('</dict></plist>', `<key>CarillonAppGroup</key><string>${appGroup}</string></dict></plist>`) : extensionPlist);
+    if (appGroup) writeFileSync(join(folder, `${EXTENSION_NAME}.entitlements`), `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>com.apple.security.application-groups</key><array><string>${appGroup}</string></array></dict></plist>`);
+    addNotificationExtension(mod.modResults, bundleId, swiftPackageSource(), appGroup);
     return mod;
   });
 };

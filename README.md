@@ -207,7 +207,7 @@ Options:
 ## Native dependencies
 
 The podspec resolves `carillon-swift` through Swift Package Manager with minimum
-version `0.2.1`. Gradle resolves `com.exostack:carillon:0.2.1`.
+version `0.5.0`. Gradle resolves `com.exostack:carillon:0.5.0`.
 
 For local development, clone the native SDKs beside this repository:
 
@@ -471,6 +471,41 @@ Expo configuration. A policy based only on the Expo SDK version does not track
 adding a native module between SDK upgrades. See
 [Expo runtime versions](https://docs.expo.dev/eas-update/runtime-versions/).
 
-Release 0.4.3 requires native Carillon Swift and Kotlin 0.4.1 or later for
+This release requires native Carillon Swift and Kotlin 0.5.0 or later for
 re-registration after mobile-key changes. Rebuild the native app and update its
 resolved native dependencies; an OTA update alone cannot apply this native fix.
+
+## Receipt tracking
+
+SDK 0.5.0 automatically reports `received` through its native callbacks and checks
+notifications still present when the app starts or resumes. These events persist
+offline. They do not trigger `onOpened`; opening the app directly does not count
+as tapping a notification. Missing receipts do not prove a delivery failure.
+
+On iOS, notifications removed before the app opens are recoverable only when the
+notification service extension records them in an App Group. With Expo:
+
+```json
+{
+  "expo": {
+    "plugins": [["@exostack/carillon-react-native", {
+      "appGroup": "group.com.example.app.carillon"
+    }]]
+  }
+}
+```
+
+Enable this App Group for both app and extension in Apple Developer, then rebuild
+the native app with matching provisioning profiles. The plugin configures the
+entitlements and `CarillonAppGroup` Info.plist value on both targets. For a bare
+app, add those settings manually to both targets. Receipts saved by the extension
+are reported the next time the host app launches or becomes active. iOS may not
+run the extension for every notification, particularly silent notifications.
+
+Android recovery uses Carillon's default notification tag. A custom
+`android.notification.tag` disables recovery from the tray for that notification.
+Already dismissed notifications cannot be recovered from the tray.
+
+Check the delivery trace for `received_at` and `received_reported_at`: the first
+is the observed receipt time, the second is when Carillon accepted the report.
+A receipt is not proof that a person read the notification.
